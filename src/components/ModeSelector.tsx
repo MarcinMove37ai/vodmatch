@@ -57,7 +57,6 @@ export default function ModeSelector({ onContinue }: ModeSelectorProps) {
       opacity: 1,
       y: 0,
       transition: {
-        ease: [0.22, 1, 0.36, 1],
         duration: 0.6,
       },
     },

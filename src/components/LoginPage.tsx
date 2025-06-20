@@ -186,7 +186,9 @@ export default function LoginPage({ onLogin, error }: LoginPageProps) {
               {displayPins.map((displayPin, index) => (
                 <input
                   key={index}
-                  ref={(el) => (inputRefs.current[index] = el)}
+                  ref={(el) => {
+                    inputRefs.current[index] = el
+                  }}
                   type="text"
                   value={displayPin}
                   onChange={(e) => handlePinChange(index, e.target.value)}

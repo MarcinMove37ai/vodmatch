@@ -22,6 +22,38 @@ const CORRECT_PASSWORD = 'aicc$'
 
 type AppStep = 'login' | 'platforms' | 'mode' | 'profile' | 'quiz' | 'results'
 
+// 🎯 localStorage helpers for currentStep per user
+const getCurrentStepKey = (sessionId: string, userId: string) => `vodmatch_step_${sessionId}_${userId}`
+
+const saveCurrentStep = (sessionId: string, userId: string, step: AppStep) => {
+  try {
+    localStorage.setItem(getCurrentStepKey(sessionId, userId), step)
+    console.log(`💾 Saved currentStep: ${step} for user ${userId}`)
+  } catch (error) {
+    console.error('❌ Failed to save currentStep:', error)
+  }
+}
+
+const loadCurrentStep = (sessionId: string, userId: string): AppStep | null => {
+  try {
+    const saved = localStorage.getItem(getCurrentStepKey(sessionId, userId))
+    console.log(`📖 Loaded currentStep: ${saved} for user ${userId}`)
+    return saved as AppStep
+  } catch (error) {
+    console.error('❌ Failed to load currentStep:', error)
+    return null
+  }
+}
+
+const clearCurrentStep = (sessionId: string, userId: string) => {
+  try {
+    localStorage.removeItem(getCurrentStepKey(sessionId, userId))
+    console.log(`🗑️ Cleared currentStep for user ${userId}`)
+  } catch (error) {
+    console.error('❌ Failed to clear currentStep:', error)
+  }
+}
+
 export default function VodMatchApp() {
   // Device detection
   const { isMobile } = useDeviceDetection()
@@ -49,32 +81,100 @@ export default function VodMatchApp() {
   // Debug mode (tylko w development)
   const [showDebug, setShowDebug] = useState(false)
 
-  // Determinate step based on session state
+  // 🎯 Auto-authenticate from localStorage if clientSession exists
   useEffect(() => {
-    if (!isAuthenticated || (!session && !clientSession)) {
+    if (!isAuthenticated && clientSession) {
+      console.log('🔄 Auto-authenticating from localStorage:', clientSession.sessionId)
+      setIsAuthenticated(true)
+    }
+  }, [clientSession, isAuthenticated])
+
+  // 🎯 FIXED: Determinate step based on localStorage + session validation
+  useEffect(() => {
+    if (!isAuthenticated || !clientSession) {
       setCurrentStep('login')
       return
     }
 
-    // Jeśli mamy clientSession ale nie session, ustaw platforms (pierwszą sesję można odbudować)
-    if (clientSession && !session) {
-      setCurrentStep('platforms')
+    // Try to load currentStep from localStorage first
+    const savedStep = loadCurrentStep(clientSession.sessionId, clientSession.userId)
+
+    if (savedStep) {
+      console.log(`🎯 Using currentStep from localStorage: ${savedStep}`)
+
+      // Validate if saved step is still valid based on session progress
+      if (session) {
+        const validStep = validateStepAgainstSession(savedStep, session)
+        if (validStep !== savedStep) {
+          console.log(`🔄 Adjusting step from ${savedStep} to ${validStep} based on session progress`)
+          setCurrentStep(validStep)
+          saveCurrentStep(clientSession.sessionId, clientSession.userId, validStep)
+        } else {
+          setCurrentStep(savedStep)
+        }
+      } else {
+        // No session loaded yet, use saved step
+        setCurrentStep(savedStep)
+      }
       return
     }
 
-    // Determine step based on session progress
-    if (!session?.selectedPlatforms?.length) {
-      setCurrentStep('platforms')
-    } else if (!session.viewingMode) {
-      setCurrentStep('mode')
-    } else if (!session.adminProfile) {
-      setCurrentStep('profile')
-    } else if (session.status === 'quiz') {
-      setCurrentStep('quiz')
-    } else if (session.status === 'results') {
-      setCurrentStep('results')
+    // 🔄 FALLBACK: Determine step based on session progress (pierwsza wizyta lub brak localStorage)
+    console.log('🔄 No saved currentStep, determining from session progress')
+
+    if (!session) {
+      // Waiting for session to load
+      setCurrentStep('platforms') // Safe default
+      return
     }
-  }, [isAuthenticated, session, clientSession])
+
+    let determinedStep: AppStep = 'platforms'
+
+    if (!session?.selectedPlatforms?.length) {
+      determinedStep = 'platforms'
+    } else if (!session.viewingMode) {
+      determinedStep = 'mode'
+    } else if (!session.adminProfile) {
+      determinedStep = 'profile'
+    } else if (session.status === 'quiz') {
+      determinedStep = 'quiz'
+    } else if (session.status === 'results') {
+      determinedStep = 'results'
+    }
+
+    console.log(`🎯 Determined currentStep from session: ${determinedStep}`)
+    setCurrentStep(determinedStep)
+    saveCurrentStep(clientSession.sessionId, clientSession.userId, determinedStep)
+
+  }, [isAuthenticated, clientSession, session])
+
+  // 🎯 Helper function to validate step against session progress
+  const validateStepAgainstSession = (step: AppStep, session: any): AppStep => {
+    // User can't be ahead of session progress
+    if (step === 'mode' && !session.selectedPlatforms?.length) {
+      return 'platforms' // Session doesn't have platforms yet
+    }
+    if (step === 'profile' && !session.viewingMode) {
+      return 'mode' // Session doesn't have mode yet
+    }
+    if (step === 'quiz' && !session.adminProfile) {
+      return 'profile' // Session doesn't have profile yet
+    }
+    if (step === 'results' && session.status !== 'results') {
+      return 'quiz' // Session not in results phase yet
+    }
+
+    // Step is valid
+    return step
+  }
+
+  // 🎯 Helper function to update currentStep
+  const updateCurrentStep = (newStep: AppStep) => {
+    if (clientSession) {
+      setCurrentStep(newStep)
+      saveCurrentStep(clientSession.sessionId, clientSession.userId, newStep)
+    }
+  }
 
   // Show content with delay for animations
   useEffect(() => {
@@ -113,6 +213,12 @@ export default function VodMatchApp() {
   // Handle logout
   const handleLogout = () => {
     console.log('🚪 Logging out and clearing session...')
+
+    // Clear currentStep from localStorage
+    if (clientSession) {
+      clearCurrentStep(clientSession.sessionId, clientSession.userId)
+    }
+
     setIsAuthenticated(false)
     setCurrentStep('login')
     setShowContent(false)
@@ -126,7 +232,7 @@ export default function VodMatchApp() {
     const success = await updatePlatforms(selectedPlatforms)
     if (success) {
       console.log('✅ Platforms saved to session')
-      // Step change will be handled by useEffect
+      updateCurrentStep('mode') // Move to next step
     } else {
       console.error('❌ Failed to save platforms to session')
     }
@@ -139,7 +245,7 @@ export default function VodMatchApp() {
     const success = await updateMode(selectedMode)
     if (success) {
       console.log('✅ Mode saved to session')
-      // Step change will be handled by useEffect
+      updateCurrentStep('profile') // Move to next step
     } else {
       console.error('❌ Failed to save mode to session')
     }
@@ -152,7 +258,7 @@ export default function VodMatchApp() {
     const success = await updateAdminProfile(profile)
     if (success) {
       console.log('✅ Profile saved to session')
-      // Step change will be handled by useEffect
+      updateCurrentStep('quiz') // Move to next step
     } else {
       console.error('❌ Failed to save profile to session')
     }
@@ -161,6 +267,8 @@ export default function VodMatchApp() {
   // Debug info component
   const DebugInfo = () => {
     if (process.env.NODE_ENV !== 'development' || !showDebug) return null
+
+    const savedStep = clientSession ? loadCurrentStep(clientSession.sessionId, clientSession.userId) : null
 
     return (
       <div className="fixed bottom-4 left-4 right-4 bg-black/90 text-green-400 p-3 rounded-lg text-xs font-mono z-50 max-h-48 overflow-y-auto">
@@ -175,7 +283,8 @@ export default function VodMatchApp() {
         </div>
 
         <div className="space-y-1">
-          <div><span className="text-yellow-400">Step:</span> {currentStep}</div>
+          <div><span className="text-yellow-400">Current Step:</span> {currentStep}</div>
+          <div><span className="text-yellow-400">Saved Step:</span> {savedStep || 'None'}</div>
           <div><span className="text-yellow-400">Auth:</span> {isAuthenticated ? '✅' : '❌'}</div>
           <div><span className="text-yellow-400">Session ID:</span> {session?.sessionId || 'None'}</div>
           <div><span className="text-yellow-400">User ID:</span> {clientSession?.userId || 'None'}</div>
@@ -185,7 +294,11 @@ export default function VodMatchApp() {
           {session && (
             <>
               <div><span className="text-yellow-400">Platforms:</span> {session.selectedPlatforms?.length ?? 0}</div>
-              <div><span className="text-yellow-400">Mode:</span> {session.viewingMode?.displayName || 'None'}</div>
+              <div><span className="text-yellow-400">Mode:</span> {
+                typeof session.viewingMode === 'string'
+                  ? session.viewingMode
+                  : session.viewingMode?.displayName || session.viewingMode?.id || 'None'
+              }</div>
               <div><span className="text-yellow-400">Profile:</span> {session.adminProfile?.displayName || 'None'}</div>
               <div><span className="text-yellow-400">Participants:</span> {session.participants?.length ?? 0}</div>
             </>
@@ -261,7 +374,11 @@ export default function VodMatchApp() {
               <h1 className="text-3xl font-light text-white">Quiz Component</h1>
               <p className="text-gray-400">Coming next: Movie preference quiz</p>
               {session?.viewingMode && (
-                <p className="text-blue-400">Mode: {session.viewingMode.displayName}</p>
+                <p className="text-blue-400">Mode: {
+                  typeof session.viewingMode === 'string'
+                    ? session.viewingMode
+                    : session.viewingMode.displayName || session.viewingMode.id
+                }</p>
               )}
               {session?.adminProfile && (
                 <p className="text-green-400">Profile: {session.adminProfile.displayName}</p>

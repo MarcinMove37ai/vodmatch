@@ -261,8 +261,8 @@ async function mapApifyLinkedInDataToResponse(apifyData: ApifyLinkedInResponse, 
     // Kontynuuj normalnie - zapis profilu nie powinien blokować sprawdzenia
   }
 
-  // 🔧 NORMALIZACJA DANYCH - użyj tej samej funkcji co do zapisu
-  const normalizedData = normalizeLinkedInData(apifyData);
+  // 🔧 NORMALIZACJA DANYCH - użyj tej samej funkcji co do zapisu (DODANE AWAIT)
+  const normalizedData = await normalizeLinkedInData(apifyData);
 
   console.log('🔧 Normalized LinkedIn data:', {
     jobTitle: normalizedData.jobTitle,

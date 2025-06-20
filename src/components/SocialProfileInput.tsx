@@ -153,8 +153,8 @@ export default function SocialProfileInput({ onContinue, showContent = true }: S
 
   const viewVariants = {
     initial: { opacity: 0, y: 20 },
-    animate: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] } },
-    exit: { opacity: 0, y: -20, transition: { duration: 0.4, ease: [0.22, 1, 0.36, 1] } },
+    animate: { opacity: 1, y: 0, transition: { duration: 0.6 } },
+    exit: { opacity: 0, y: -20, transition: { duration: 0.4 } },
   }
 
   const profileContainerVariants = {
@@ -163,7 +163,7 @@ export default function SocialProfileInput({ onContinue, showContent = true }: S
 
   const profileItemVariants = {
     initial: { opacity: 0, y: 20 },
-    animate: { opacity: 1, y: 0, transition: { ease: [0.22, 1, 0.36, 1] } },
+    animate: { opacity: 1, y: 0, transition: { duration: 0.6 } },
   }
 
   return (
@@ -233,7 +233,7 @@ export default function SocialProfileInput({ onContinue, showContent = true }: S
                           <div className="w-20 h-20 rounded-full p-0.5 bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-500"><img src={socialProfile.profilepic_url!} alt="Profile" className="w-full h-full rounded-full object-cover border-2 border-white" /></div>
                           <div className="w-px h-16 bg-gradient-to-b from-transparent via-gray-600 to-transparent"></div>
                           <div className="text-center">
-                            <div className="text-2xl font-medium text-pink-400">{formatNumber(socialProfile.followers_count)}</div>
+                            <div className="text-2xl font-medium text-pink-400">{formatNumber(socialProfile.followers_count ?? null)}</div>
                             <div className="text-sm text-gray-500">Followers</div>
                           </div>
                         </div>
@@ -249,7 +249,7 @@ export default function SocialProfileInput({ onContinue, showContent = true }: S
                           <div className="w-20 h-20 rounded-full p-0.5 bg-gradient-to-tr from-blue-500 to-cyan-500"><img src={socialProfile.profilepic_url!} alt="Profile" className="w-full h-full rounded-full object-cover border-2 border-white" /></div>
                           <div className="w-px h-16 bg-gradient-to-b from-transparent via-gray-600 to-transparent"></div>
                           <div className="text-center">
-                            <div className="text-2xl font-medium text-blue-400">{formatNumber(socialProfile.followers)}</div>
+                            <div className="text-2xl font-medium text-blue-400">{formatNumber(socialProfile.followers ?? null)}</div>
                             <div className="text-sm text-gray-500">Followers</div>
                           </div>
                         </div>
