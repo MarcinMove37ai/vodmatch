@@ -865,7 +865,7 @@ export default function VodMatchApp() {
       {/* 🆕 QUIZ SCREEN - Real QuizScreen component with real-time */}
       {currentStep === 'quiz' && (
         <>
-          <LogoutButton onLogout={handleLogout} />
+          {/* <LogoutButton onLogout={handleLogout} /> */}
           <QuizScreen
             sessionId={session?.sessionId || ''}
             session={realTimeSession || session}
