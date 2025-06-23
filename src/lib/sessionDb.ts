@@ -108,6 +108,24 @@ export class SessionDatabase {
     }
   }
 
+  // 🆕 NEW: Update session status (recruiting, collecting_profiles, quiz_active, etc.)
+  async updateStatus(sessionId: string, status: string): Promise<boolean> {
+    try {
+      await prisma.session.update({
+        where: { sessionId: sessionId.toUpperCase() },
+        data: {
+          status
+        }
+      })
+
+      console.log(`✅ Updated status for session ${sessionId}: ${status}`)
+      return true
+    } catch (error) {
+      console.error(`❌ Error updating status for session ${sessionId}:`, error)
+      return false
+    }
+  }
+
   // Update session platforms
   async updatePlatforms(sessionId: string, platforms: any[]): Promise<boolean> {
     try {
@@ -170,7 +188,7 @@ export class SessionDatabase {
     }
   }
 
-  // 🎯 NEW: Save user profile to session_profiles table
+  // 🎯 FIXED: Save user profile - KLUCZOWA POPRAWKA FLOW STATUSÓW
   async saveUserProfile(
     sessionId: string,
     userId: string,
@@ -213,16 +231,56 @@ export class SessionDatabase {
         }
       })
 
-      // 🎯 Update session status if admin profile was saved
+      // 🎯 KLUCZOWA POPRAWKA: Różny flow dla admina w zależności od trybu sesji
       if (isAdmin) {
-        await prisma.session.update({
-          where: { sessionId: sessionId.toUpperCase() },
-          data: {
-            currentStep: 'quiz',
-            status: 'quiz'
-          }
+        // Sprawdź tryb sesji
+        const session = await prisma.session.findUnique({
+          where: { sessionId: sessionId.toUpperCase() }
         })
-        console.log(`🎯 Updated session status to quiz after admin profile save`)
+
+        if (session?.viewingMode === 'solo') {
+          // Solo: od razu do quiz
+          await prisma.session.update({
+            where: { sessionId: sessionId.toUpperCase() },
+            data: {
+              currentStep: 'quiz',
+              status: 'quiz'
+            }
+          })
+          console.log(`🎯 Solo session: Updated to quiz`)
+        } else {
+          // ✅ POPRAWKA: Multi-user przechodzi do recruiting (pozwala dołączać!)
+          await prisma.session.update({
+            where: { sessionId: sessionId.toUpperCase() },
+            data: {
+              currentStep: 'recruiting',
+              status: 'recruiting'  // ✅ Ten status pozwala na dołączanie!
+            }
+          })
+          console.log(`🎯 Multi-user session: Updated to recruiting phase - participants can now join!`)
+        }
+      } else {
+        // Uczestnik dodał profil - sprawdź czy wszyscy gotowi
+        const allProfiles = await this.getSessionProfiles(sessionId)
+        const participantProfiles = allProfiles.filter(p => !p.isAdmin)
+        const joinedParticipants = participantProfiles.filter(p =>
+          p.platform && p.username && p.username !== `temp_${p.userId.slice(-8)}`
+        )
+
+        console.log(`📊 Session progress: ${joinedParticipants.length}/${participantProfiles.length} participants have real profiles`)
+
+        // Jeśli wszyscy uczestnicy mają profile, admin może zacząć quiz
+        if (joinedParticipants.length === participantProfiles.length &&
+            participantProfiles.length > 0) {
+          await prisma.session.update({
+            where: { sessionId: sessionId.toUpperCase() },
+            data: {
+              status: 'ready_for_quiz',
+              currentStep: 'ready_for_quiz'
+            }
+          })
+          console.log(`🎯 All participants ready - admin can start quiz`)
+        }
       }
 
       console.log(`✅ Saved profile for user ${userId}: ${profileData.platform}/${profileData.username}`)
@@ -270,6 +328,42 @@ export class SessionDatabase {
     } catch (error) {
       console.error(`❌ Error getting profiles for session ${sessionId}:`, error)
       return []
+    }
+  }
+
+  // 🆕 NEW METHOD: Admin zamyka rejestrację
+  async closeRegistration(sessionId: string): Promise<boolean> {
+    try {
+      await prisma.session.update({
+        where: { sessionId: sessionId.toUpperCase() },
+        data: {
+          status: 'collecting_profiles',
+          currentStep: 'collecting_profiles'
+        }
+      })
+      console.log(`✅ Registration closed for session ${sessionId} - no more participants can join`)
+      return true
+    } catch (error) {
+      console.error(`❌ Error closing registration:`, error)
+      return false
+    }
+  }
+
+  // 🆕 NEW METHOD: Admin startuje quiz
+  async startQuiz(sessionId: string): Promise<boolean> {
+    try {
+      await prisma.session.update({
+        where: { sessionId: sessionId.toUpperCase() },
+        data: {
+          status: 'quiz_active',
+          currentStep: 'quiz'
+        }
+      })
+      console.log(`✅ Quiz started for session ${sessionId}`)
+      return true
+    } catch (error) {
+      console.error(`❌ Error starting quiz:`, error)
+      return false
     }
   }
 

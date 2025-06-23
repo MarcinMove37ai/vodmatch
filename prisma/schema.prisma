@@ -16,6 +16,11 @@ model Session {
   selectedPlatforms Json @default("[]") @map("selected_platforms")
   viewingMode       String? @map("viewing_mode") @db.VarChar(20)
 
+  // 🆕 DODANE: Limit uczestników
+  maxParticipants   Int @default(8) @map("max_participants")
+
+  // 🔄 ROZSZERZONE: Nowe statusy dla multi-user flow
+  // Możliwe wartości: "setup", "recruiting", "collecting_profiles", "quiz_active", "quiz", "results"
   status      String @default("setup") @db.VarChar(20)
   currentStep String @default("platforms") @map("current_step") @db.VarChar(50)
 
@@ -41,6 +46,10 @@ model SessionProfile {
 
   // Metadane
   isAdmin     Boolean  @default(false) @map("is_admin")
+
+  // 🆕 DODANE: Tracking czy user aktywnie dołączył (vs tylko invited)
+  hasJoined   Boolean  @default(false) @map("has_joined")
+
   createdAt   DateTime @default(now()) @map("created_at")
 
   // 🎯 RELACJA: Każdy profil należy do sesji
