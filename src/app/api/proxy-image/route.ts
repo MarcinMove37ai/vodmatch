@@ -1,233 +1,237 @@
-// src/app/api/proxy-image/route.ts
+// src/app/api/proxy-image/route.ts - CDN FALLBACK SOLUTION
 import { NextRequest, NextResponse } from 'next/server';
+
+// 🌍 INSTAGRAM CDN DOMAINS (from most reliable to fallbacks)
+const INSTAGRAM_CDN_DOMAINS = [
+  'scontent-del1-2.cdninstagram.com',  // ✅ Works well
+  'scontent-frx5-1.cdninstagram.com',
+  'scontent-lhr8-1.cdninstagram.com',
+  'scontent.cdninstagram.com',
+  'instagram.fxxx-x.fna.fbcdn.net'  // Wildcard pattern for fbcdn
+];
+
+// 🔄 Generate alternative CDN URLs for same image
+function generateCDNAlternatives(originalUrl: string): string[] {
+  const alternatives: string[] = [originalUrl]; // Start with original
+
+  // Extract path and parameters (everything after domain)
+  const urlPattern = /https:\/\/[^\/]+(.+)/;
+  const pathMatch = originalUrl.match(urlPattern);
+
+  if (!pathMatch) return alternatives;
+
+  const pathAndParams = pathMatch[1];
+
+  // Generate alternatives with different CDN domains
+  INSTAGRAM_CDN_DOMAINS.forEach(domain => {
+    if (!originalUrl.includes(domain)) {
+      alternatives.push(`https://${domain}${pathAndParams}`);
+    }
+  });
+
+  return alternatives;
+}
+
+// 🎲 Get random user agent
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0'
+];
+
+function getRandomUserAgent(): string {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const { searchParams } = new URL(request.url);
     const imageUrl = searchParams.get('url');
 
-    console.log('📸 Image proxy request for:', imageUrl);
+    console.log('📸 Image proxy request for:', imageUrl?.substring(0, 80) + '...');
 
     if (!imageUrl) {
-      console.log('❌ No image URL provided');
       return NextResponse.json({ error: 'Image URL is required' }, { status: 400 });
     }
 
-    // Sprawdź czy URL jest z dozwolonych domen (security)
+    // Domain validation
     const allowedDomains = [
-      // Instagram domains
-      'cdninstagram.com',
-      'fbcdn.net',
-      'instagram.com',
-      'scontent-',
-
-      // LinkedIn domains
-      'media.licdn.com',
-      'licdn.com',
+      'cdninstagram.com', 'fbcdn.net', 'instagram.com', 'scontent-',
+      'media.licdn.com', 'licdn.com',
     ];
 
-    const isAllowedDomain = allowedDomains.some(domain =>
-      imageUrl.includes(domain)
-    );
-
+    const isAllowedDomain = allowedDomains.some(domain => imageUrl.includes(domain));
     if (!isAllowedDomain) {
-      console.log('❌ Image URL not from allowed domain:', imageUrl);
       return NextResponse.json({ error: 'Image URL not from allowed domain' }, { status: 403 });
     }
 
-    console.log('🔍 Fetching image from:', imageUrl.substring(0, 80) + '...');
-
-    // Determine platform for appropriate headers
     const isInstagram = allowedDomains.slice(0, 4).some(domain => imageUrl.includes(domain));
     const isLinkedIn = imageUrl.includes('licdn.com');
 
-    // Prepare headers based on platform
-    let fetchHeaders: Record<string, string> = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-      'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.9',
-    };
+    // 🌍 MAIN STRATEGY: CDN alternatives for Instagram
+    if (isInstagram) {
+      const cdnAlternatives = generateCDNAlternatives(imageUrl);
+      console.log(`🔄 Generated ${cdnAlternatives.length} CDN alternatives for Instagram image`);
 
-    // Add platform-specific headers
-    if (isLinkedIn) {
-      // LinkedIn specific headers
-      fetchHeaders = {
-        ...fetchHeaders,
-        'Referer': 'https://www.linkedin.com/',
-        'Sec-Fetch-Dest': 'image',
-        'Sec-Fetch-Mode': 'no-cors',
-        'Sec-Fetch-Site': 'same-site',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache',
-      };
-      console.log('🔗 Using LinkedIn-specific headers');
-    } else if (isInstagram) {
-      // Instagram specific headers - simplified for better success rate
-      fetchHeaders = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'image/*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        // Usunięte problematyczne headers: Referer, Sec-Fetch-*
-      };
-      console.log('📷 Using Instagram-specific headers (simplified)');
-    }
+      // Try each CDN alternative
+      for (let i = 0; i < cdnAlternatives.length; i++) {
+        const alternativeUrl = cdnAlternatives[i];
+        const isOriginal = i === 0;
 
-    // Zwiększony timeout dla Instagram - próbujemy kilka razy
-    let imageResponse: Response | undefined;
-    let retryCount = 0;
-    const maxRetries = 2;
+        console.log(`🎯 Trying CDN ${i + 1}/${cdnAlternatives.length}: ${isOriginal ? 'ORIGINAL' : 'ALTERNATIVE'}`);
+        console.log(`🔗 URL: ${alternativeUrl.substring(0, 80)}...`);
 
-    do {
-      try {
-        imageResponse = await fetch(imageUrl, {
-          headers: fetchHeaders,
-          signal: AbortSignal.timeout(30000) // Zwiększony timeout do 30s
-        });
-
-        if (imageResponse.ok) break;
-
-        console.log(`❌ Attempt ${retryCount + 1} failed: ${imageResponse.status}`);
-        retryCount++;
-
-        // Jeśli pierwszy request failed dla Instagram, spróbuj z minimal headers
-        if (isInstagram && retryCount === 1) {
-          console.log('🔄 Retrying Instagram with minimal headers...');
-          fetchHeaders = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': '*/*',
-          };
-        }
-
-        // Krótka pauza przed retry
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-      } catch (error) {
-        console.log(`❌ Network error on attempt ${retryCount + 1}:`, error);
-        retryCount++;
-        if (retryCount >= maxRetries) throw error;
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
-    } while (retryCount < maxRetries);
-
-    // POPRAWKA: Sprawdź czy imageResponse istnieje po wszystkich próbach
-    if (!imageResponse) {
-      console.log('❌ Failed to get response after all retry attempts');
-      return NextResponse.json({
-        error: 'Failed to fetch image - no response received',
-        platform: isLinkedIn ? 'LinkedIn' : isInstagram ? 'Instagram' : 'Unknown'
-      }, { status: 502 });
-    }
-
-    console.log(`📊 Image response status: ${imageResponse.status} ${imageResponse.statusText}`);
-
-    if (!imageResponse.ok) {
-      console.log('❌ All attempts failed:', imageResponse.status);
-
-      // Dla LinkedIn spróbuj bez dodatkowych headers jeśli pierwsze żądanie się nie powiodło
-      if (isLinkedIn && imageResponse.status === 403) {
-        console.log('🔄 Retrying LinkedIn image with basic headers...');
         try {
-          const retryResponse = await fetch(imageUrl, {
-            headers: {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-              'Accept': 'image/*',
-            },
-            signal: AbortSignal.timeout(10000)
+          const headers = {
+            'User-Agent': getRandomUserAgent(),
+            'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Connection': 'close',
+            'Cache-Control': 'no-cache'
+          };
+
+          const response = await fetch(alternativeUrl, {
+            headers,
+            signal: AbortSignal.timeout(isOriginal ? 8000 : 6000) // Shorter timeout for alternatives
           });
 
-          if (retryResponse.ok) {
-            const retryArrayBuffer = await retryResponse.arrayBuffer();
-            const retryBuffer = Buffer.from(retryArrayBuffer);
+          if (response.ok) {
+            console.log(`✅ CDN ${i + 1} SUCCESS: ${response.status} (${isOriginal ? 'original' : 'alternative'} CDN)`);
 
-            console.log(`✅ LinkedIn image fetched on retry, size: ${retryBuffer.length.toLocaleString()} bytes`);
+            const imageArrayBuffer = await response.arrayBuffer();
+            const imageBuffer = Buffer.from(imageArrayBuffer);
 
-            let contentType = retryResponse.headers.get('content-type') || 'image/jpeg';
+            console.log(`✅ Image fetched successfully via CDN ${i + 1}, size: ${imageBuffer.length.toLocaleString()} bytes`);
+
+            let contentType = response.headers.get('content-type') || 'image/jpeg';
             if (!contentType.startsWith('image/')) {
-              contentType = determineContentTypeFromUrl(imageUrl);
+              contentType = 'image/jpeg';
             }
 
-            return createImageResponse(retryBuffer, contentType);
+            return new NextResponse(imageBuffer, {
+              status: 200,
+              headers: {
+                'Content-Type': contentType,
+                'Cache-Control': 'public, max-age=3600',
+                'Access-Control-Allow-Origin': '*',
+                'Content-Length': imageBuffer.length.toString(),
+                'X-CDN-Used': isOriginal ? 'original' : `alternative-${i}`,
+              },
+            });
+          } else {
+            console.log(`❌ CDN ${i + 1} failed: ${response.status}`);
           }
-        } catch (retryError) {
-          console.log('❌ LinkedIn retry also failed:', retryError);
+
+        } catch (error) {
+          console.log(`❌ CDN ${i + 1} error:`, (error as Error).message);
+        }
+
+        // Small delay between CDN attempts
+        if (i < cdnAlternatives.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
 
-      return NextResponse.json({
-        error: 'Failed to fetch image after retries',
-        status: imageResponse.status,
-        platform: isLinkedIn ? 'LinkedIn' : isInstagram ? 'Instagram' : 'Unknown'
-      }, { status: 502 });
+      console.log('❌ ALL CDN alternatives failed for Instagram image');
     }
 
-    // Pobierz dane obrazu
-    const imageArrayBuffer = await imageResponse.arrayBuffer();
-    const imageBuffer = Buffer.from(imageArrayBuffer);
+    // 🔗 LINKEDIN FALLBACK (original logic)
+    if (isLinkedIn) {
+      console.log('🔗 Trying LinkedIn with optimized headers...');
 
-    console.log(`✅ Image fetched successfully, size: ${imageBuffer.length.toLocaleString()} bytes`);
+      try {
+        const linkedInHeaders = {
+          'User-Agent': getRandomUserAgent(),
+          'Accept': 'image/*',
+          'Referer': 'https://www.linkedin.com/',
+          'Connection': 'close'
+        };
 
-    // Określ content type na podstawie response headers lub URL
-    let contentType = imageResponse.headers.get('content-type') || 'image/jpeg';
+        const response = await fetch(imageUrl, {
+          headers: linkedInHeaders,
+          signal: AbortSignal.timeout(10000)
+        });
 
-    if (!contentType.startsWith('image/')) {
-      contentType = determineContentTypeFromUrl(imageUrl);
+        if (response.ok) {
+          const imageArrayBuffer = await response.arrayBuffer();
+          const imageBuffer = Buffer.from(imageArrayBuffer);
+
+          console.log(`✅ LinkedIn image fetched, size: ${imageBuffer.length.toLocaleString()} bytes`);
+
+          let contentType = response.headers.get('content-type') || 'image/jpeg';
+
+          return new NextResponse(imageBuffer, {
+            status: 200,
+            headers: {
+              'Content-Type': contentType,
+              'Cache-Control': 'public, max-age=3600',
+              'Access-Control-Allow-Origin': '*',
+              'Content-Length': imageBuffer.length.toString(),
+            },
+          });
+        }
+      } catch (error) {
+        console.log('❌ LinkedIn fetch failed:', (error as Error).message);
+      }
     }
 
-    console.log(`📄 Content type: ${contentType}`);
+    // 🎨 ULTIMATE FALLBACK: Generate avatar initials
+    console.log('🎨 All CDN attempts failed, generating avatar fallback');
 
-    return createImageResponse(imageBuffer, contentType);
+    // Extract username or initials from URL for personalized avatar
+    const usernameMatch = imageUrl.match(/\/([^\/]+)_n\.jpg/);
+    const userId = usernameMatch ? usernameMatch[1].substring(0, 2).toUpperCase() : 'IG';
+
+    const avatarSvg = `
+      <svg width="150" height="150" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#6366f1;stop-opacity:1" />
+            <stop offset="100%" style="stop-color:#8b5cf6;stop-opacity:1" />
+          </linearGradient>
+        </defs>
+        <rect width="150" height="150" fill="url(#grad)"/>
+        <circle cx="75" cy="55" r="25" fill="rgba(255,255,255,0.9)"/>
+        <path d="M35 120 Q75 95 115 120 L115 150 L35 150 Z" fill="rgba(255,255,255,0.9)"/>
+        <text x="75" y="135" text-anchor="middle" fill="#374151" font-size="12" font-family="Arial">
+          ${isInstagram ? 'IG' : isLinkedIn ? 'LI' : userId}
+        </text>
+      </svg>
+    `;
+
+    return new NextResponse(avatarSvg, {
+      status: 200,
+      headers: {
+        'Content-Type': 'image/svg+xml',
+        'Cache-Control': 'public, max-age=300',
+        'Access-Control-Allow-Origin': '*',
+        'X-Fallback': 'avatar-generated',
+      },
+    });
 
   } catch (error) {
-    console.error('❌ Error in image proxy:', error);
+    console.error('❌ Critical error in image proxy:', error);
 
-    if (error instanceof Error && error.name === 'AbortError') {
-      console.error('⏰ Image fetch timed out');
-      return NextResponse.json({ error: 'Image fetch timeout' }, { status: 504 });
-    }
+    // Error fallback avatar
+    const errorSvg = `
+      <svg width="150" height="150" xmlns="http://www.w3.org/2000/svg">
+        <rect width="150" height="150" fill="#ef4444"/>
+        <text x="75" y="80" text-anchor="middle" fill="white" font-size="16">⚠️</text>
+        <text x="75" y="100" text-anchor="middle" fill="white" font-size="10">Error</text>
+      </svg>
+    `;
 
-    return NextResponse.json({
-      error: 'Internal server error',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    }, { status: 500 });
+    return new NextResponse(errorSvg, {
+      status: 200,
+      headers: {
+        'Content-Type': 'image/svg+xml',
+        'Access-Control-Allow-Origin': '*',
+        'X-Fallback': 'error',
+      },
+    });
   }
 }
 
-// Helper function to determine content type from URL
-function determineContentTypeFromUrl(url: string): string {
-  if (url.includes('.png')) {
-    return 'image/png';
-  } else if (url.includes('.gif')) {
-    return 'image/gif';
-  } else if (url.includes('.webp')) {
-    return 'image/webp';
-  } else if (url.includes('.svg')) {
-    return 'image/svg+xml';
-  } else {
-    return 'image/jpeg';
-  }
-}
-
-// Helper function to create consistent image response
-function createImageResponse(imageBuffer: Buffer, contentType: string): NextResponse {
-  return new NextResponse(imageBuffer, {
-    status: 200,
-    headers: {
-      'Content-Type': contentType,
-      'Cache-Control': 'public, max-age=3600', // Cache na 1 godzinę
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET',
-      'Access-Control-Allow-Headers': 'Content-Type',
-      // Dodatkowe headers dla lepszego cachowania
-      'X-Content-Type-Options': 'nosniff',
-      'Content-Length': imageBuffer.length.toString(),
-      // Dodaj headers dla lepszej kompatybilności
-      'Cross-Origin-Resource-Policy': 'cross-origin',
-      'Access-Control-Expose-Headers': 'Content-Length, Content-Type',
-    },
-  });
-}
-
-// Opcjonalna obsługa preflight requests dla CORS
 export async function OPTIONS(): Promise<NextResponse> {
   return new NextResponse(null, {
     status: 200,
@@ -235,8 +239,6 @@ export async function OPTIONS(): Promise<NextResponse> {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
-      'Access-Control-Max-Age': '86400', // 24 godziny
-      'Cross-Origin-Resource-Policy': 'cross-origin',
     },
   });
 }

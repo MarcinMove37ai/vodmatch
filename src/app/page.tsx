@@ -58,13 +58,6 @@ const clearCurrentStep = (sessionId: string, userId: string) => {
   }
 }
 
-// 🛠️ HELPER: Get viewing mode as string for comparison
-const getViewingModeString = (viewingMode: any): string | null => {
-  if (!viewingMode) return null
-  if (typeof viewingMode === 'string') return viewingMode
-  return viewingMode.id || viewingMode.displayName || null
-}
-
 export default function VodMatchApp() {
   // Device detection
   const { isMobile } = useDeviceDetection()
@@ -97,11 +90,6 @@ export default function VodMatchApp() {
 
   // Debug mode (tylko w development)
   const [showDebug, setShowDebug] = useState(false)
-
-  // 🛠️ Wrapper functions to match component interfaces
-  const handleRefreshSession = async () => {
-    await refreshSession()
-  }
 
   // 🔧 NAPRAWKA: Określ czy należy włączyć real-time na podstawie kroku i statusu sesji
   const shouldEnableRealTime = () => {
@@ -227,8 +215,11 @@ export default function VodMatchApp() {
         return 'results'
       } else {
         // Check viewing mode for default destination
-        const viewingModeStr = getViewingModeString(session.viewingMode)
-        if (viewingModeStr === 'solo') {
+        const viewingModeId = typeof session.viewingMode === 'string'
+          ? session.viewingMode
+          : session?.viewingMode?.id
+
+        if (viewingModeId === 'solo') {
           return 'quiz' // Solo goes directly to quiz
         } else {
           return 'qr_code' // Multi-user goes to QR code
@@ -237,17 +228,16 @@ export default function VodMatchApp() {
     } else {
       // 🟢 PARTICIPANT FLOW: participant_profile → waiting_room → quiz → results
 
-      // Use getParticipantStatus to check if current user has profile
-      const participantStatus = getParticipantStatus()
+      // Check if participant has added their profile
+      const participantProfile = session.profiles?.find((p: any) =>
+        p.userId === clientSession?.userId && !p.isAdmin
+      )
 
-      // Check if current participant has added their profile
-      // Since we can't access profiles directly, assume participant needs profile
-      // if they're on this flow and not in quiz/results status
-      const needsProfile = session.status === 'recruiting' ||
-                          session.status === 'setup' ||
-                          session.status === 'collecting_profiles'
+      const hasRealProfile = participantProfile &&
+        participantProfile.username &&
+        participantProfile.username !== `temp_${participantProfile.userId.slice(-8)}`
 
-      if (needsProfile && (session.status === 'recruiting' || session.status === 'collecting_profiles')) {
+      if (!participantProfile || !hasRealProfile) {
         return 'participant_profile' // Participant needs to add profile
       } else if (session.status === 'collecting_profiles' || session.status === 'recruiting' || session.status === 'ready_for_quiz') {
         return 'waiting_room' // Waiting for admin to start quiz
@@ -283,11 +273,15 @@ export default function VodMatchApp() {
       }
     } else {
       // Participant validation logic
-      // Use getParticipantStatus to get participant info instead of accessing profiles directly
-      const participantStatus = getParticipantStatus()
+      const participantProfile = session.profiles?.find((p: any) =>
+        p.userId === clientSession?.userId && !p.isAdmin
+      )
 
-      // Simplified validation based on session status rather than profile details
-      if (step === 'waiting_room' && (session.status === 'recruiting' || session.status === 'collecting_profiles')) {
+      const hasRealProfile = participantProfile &&
+        participantProfile.username &&
+        participantProfile.username !== `temp_${participantProfile.userId.slice(-8)}`
+
+      if (step === 'waiting_room' && (!participantProfile || !hasRealProfile)) {
         return 'participant_profile'
       }
       // 🔧 QUIZ VALIDATION: Allow transition to quiz when status changes
@@ -394,9 +388,12 @@ export default function VodMatchApp() {
     if (success) {
       console.log('✅ Admin profile saved to session')
 
-      // 🛠️ FIXED: Check viewing mode using helper function
-      const viewingModeStr = getViewingModeString(session?.viewingMode)
-      if (viewingModeStr === 'solo') {
+      // Check viewing mode to determine next step
+      const viewingModeId = typeof session?.viewingMode === 'string'
+        ? session.viewingMode
+        : session?.viewingMode?.id
+
+      if (viewingModeId === 'solo') {
         updateCurrentStep('quiz') // Solo goes directly to quiz
       } else {
         updateCurrentStep('qr_code') // Multi-user goes to QR code
@@ -475,6 +472,9 @@ export default function VodMatchApp() {
 
     const savedStep = clientSession ? loadCurrentStep(clientSession.sessionId, clientSession.userId) : null
 
+    // 🔧 HELPER: Type assertion for profiles access
+    const sessionWithProfiles = session as any
+
     return (
       <div className="fixed bottom-4 left-4 right-4 bg-black/90 text-green-400 p-3 rounded-lg text-xs font-mono z-50 max-h-48 overflow-y-auto">
         <div className="flex justify-between items-center mb-2">
@@ -509,12 +509,22 @@ export default function VodMatchApp() {
           {session && (
             <>
               <div><span className="text-yellow-400">Platforms:</span> {session.selectedPlatforms?.length ?? 0}</div>
-              <div><span className="text-yellow-400">Mode:</span> {getViewingModeString(session.viewingMode) || 'None'}</div>
+              <div><span className="text-yellow-400">Mode:</span> {
+                typeof session.viewingMode === 'string'
+                  ? session.viewingMode
+                  : session.viewingMode?.displayName || session.viewingMode?.id || 'None'
+              }</div>
               <div><span className="text-yellow-400">Admin Profile:</span> {session.adminProfile?.displayName || 'None'}</div>
+              <div><span className="text-yellow-400">Total Profiles:</span> {sessionWithProfiles.profiles?.length ?? 0}</div>
               <div><span className="text-yellow-400">Participants Ready:</span> {(() => {
                 const status = getParticipantStatus()
                 return `${status.ready}/${status.total}`
               })()}</div>
+              {sessionWithProfiles.profiles && (
+                <div><span className="text-yellow-400">Profiles:</span> {sessionWithProfiles.profiles.map((p: any) =>
+                  `${p.username}(${p.isAdmin ? 'admin' : 'participant'})${p.pic_url ? '🖼️' : '👤'}`
+                ).join(', ')}</div>
+              )}
             </>
           )}
 
@@ -530,6 +540,11 @@ export default function VodMatchApp() {
         </div>
       </div>
     )
+  }
+
+  // 🔧 WRAPPER: Convert refreshSession to void return type
+  const handleRefreshSession = async (): Promise<void> => {
+    await refreshSession()
   }
 
   // Show desktop blocker on desktop
@@ -583,7 +598,7 @@ export default function VodMatchApp() {
         </>
       )}
 
-      {/* 🟢 PARTICIPANT FLOW */}
+      {/* 🟢 PARTICIPANT FLOW - 🔧 NAPRAWKA: Teraz z real-time! */}
       {currentStep === 'participant_profile' && !isAdmin && (
         <>
           <LogoutButton onLogout={handleLogout} />
@@ -644,7 +659,11 @@ export default function VodMatchApp() {
               </p>
               <p className="text-blue-400">Coming next: Movie preference quiz</p>
               {session?.viewingMode && (
-                <p className="text-green-400">Mode: {getViewingModeString(session.viewingMode) || 'Unknown'}</p>
+                <p className="text-green-400">Mode: {
+                  typeof session.viewingMode === 'string'
+                    ? session.viewingMode
+                    : session.viewingMode.displayName || session.viewingMode.id
+                }</p>
               )}
             </div>
           </div>

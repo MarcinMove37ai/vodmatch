@@ -205,22 +205,19 @@ export async function PATCH(
 
         console.log(`💾 Updating participant profile for user ${userId}`)
 
-        // FIXED: Extract platform from profile data using correct property names
+        // Extract platform from profile data (same logic as admin)
         const platform = profile.platform || 'instagram' // Default fallback
         const username = profile.username || profile.name || 'unknown'
-
-        // FIXED: Use the correct property name from interface
-        const pic_url = profile.profilePictureUrl || undefined
+        const pic_url = profile.profilePictureUrl || (profile as any).profilepic_url || (profile as any).profilePicUrl || null
 
         // Create posts text from follower data (if available)
         let posts: string | undefined = undefined
-        const profileAny = profile as any
-        if (profileAny.followers_count || profileAny.posts_count || profileAny.followers || profileAny.connections) {
+        if ((profile as any).followers_count || (profile as any).posts_count || (profile as any).followers || (profile as any).connections) {
           const stats = []
-          if (profileAny.followers_count) stats.push(`${profileAny.followers_count} followers`)
-          if (profileAny.posts_count) stats.push(`${profileAny.posts_count} posts`)
-          if (profileAny.followers) stats.push(`${profileAny.followers} followers`)
-          if (profileAny.connections) stats.push(`${profileAny.connections} connections`)
+          if ((profile as any).followers_count) stats.push(`${(profile as any).followers_count} followers`)
+          if ((profile as any).posts_count) stats.push(`${(profile as any).posts_count} posts`)
+          if ((profile as any).followers) stats.push(`${(profile as any).followers} followers`)
+          if ((profile as any).connections) stats.push(`${(profile as any).connections} connections`)
           posts = stats.join(', ')
         }
 

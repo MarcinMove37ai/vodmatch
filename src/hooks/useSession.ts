@@ -408,42 +408,26 @@ export function useSession(): UseSessionReturn {
     return await updateSession('start_quiz', {})
   }, [clientSession, updateSession])
 
-  // FIXED: NOWA METODA 3: Pobierz status uczestników (uproszczona wersja)
-  const getParticipantStatus = useCallback((): { ready: number, total: number } => {
-    // FIXED: Since AppSession doesn't have profiles property, return basic status based on session info
-    if (!session) {
-      return { ready: 0, total: 0 }
-    }
+  // NOWA METODA 3: Pobierz status uczestników
+const getParticipantStatus = useCallback((): { ready: number, total: number } => {
+  // 🔧 TYPE CASTING: Access profiles from real session data
+  const sessionWithProfiles = session as any
 
-    // FIXED: Return simplified status based on session status rather than detailed profile analysis
-    // This will be used mainly for UI feedback, real participant tracking happens on server
-    const baseStatus = { ready: 0, total: 0 }
+  if (!sessionWithProfiles?.profiles) {
+    return { ready: 0, total: 0 }
+  }
 
-    // For viewing modes that support multiple participants
-    const viewingModeStr = typeof session.viewingMode === 'string'
-      ? session.viewingMode
-      : session.viewingMode?.id || session.viewingMode?.displayName
+  // Filtruj uczestników (nie admin)
+  const participants = sessionWithProfiles.profiles.filter((p: any) => !p.isAdmin)
 
-    if (viewingModeStr === 'couple') {
-      baseStatus.total = 1 // One participant for couple mode (admin + 1)
-    } else if (viewingModeStr === 'group') {
-      baseStatus.total = 7 // Max participants for group mode (admin + 7)
-    } else {
-      baseStatus.total = 0 // Solo mode or unknown
-    }
+  // Sprawdź ilu ma prawdziwe profile (nie temp_user123)
+  const ready = participants.filter((p: any) =>
+    p.username && p.username !== `temp_${p.userId.slice(-8)}`
+  ).length
 
-    // FIXED: Simplified estimation without using specific status strings
-    // Use general logic based on session existence and mode
-    if (session.adminProfile && baseStatus.total > 0) {
-      // If admin has profile and there are participants expected, estimate some progress
-      baseStatus.ready = Math.floor(baseStatus.total / 2)
-    } else {
-      baseStatus.ready = 0
-    }
-
-    console.log(`📊 Participant status (estimated): ${baseStatus.ready}/${baseStatus.total} ready`)
-    return baseStatus
-  }, [session])
+  console.log(`📊 Participant status: ${ready}/${participants.length} ready`)
+  return { ready, total: participants.length }
+}, [session])
 
   // Odśwież sesję
   const refreshSession = useCallback(async (): Promise<boolean> => {

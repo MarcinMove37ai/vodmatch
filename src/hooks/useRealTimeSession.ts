@@ -98,13 +98,13 @@ export function useRealTimeSession(sessionId: string): UseRealTimeSessionReturn 
 
         case 'session_status_changed':
           console.log(`🔄 SSE: Session status changed to ${eventData.data.newStatus}`)
-          // FIXED: Add explicit type annotation for prev parameter
+          // Update session status if we have current session
           setSession((prev: any | null) => prev ? { ...prev, status: eventData.data.newStatus } : prev)
           break
 
         case 'quiz_started':
           console.log(`🎯 SSE: Quiz started for session ${eventData.data.sessionId}`)
-          // FIXED: Add explicit type annotation for prev parameter
+          // This is critical - triggers navigation in components that use this hook
           setSession((prev: any | null) => prev ? { ...prev, status: 'quiz_active' } : prev)
           break
 

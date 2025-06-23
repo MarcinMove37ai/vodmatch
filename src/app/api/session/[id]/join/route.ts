@@ -192,15 +192,13 @@ export async function POST(
       }, { status: 400 })
     }
 
-    // 🆕 FIXED: Create participant entry in database with hasJoined=false
+    // 🆕 Create participant entry in database with hasJoined=false
     const joinSuccess = await sessionDb.saveUserProfile(
       sessionId,
       userId,
       {
         platform: 'instagram', // Placeholder - will be updated when user adds real profile
-        username: `temp_${userId.slice(-8)}`, // Temporary username
-        pic_url: undefined, // FIXED: Changed from null to undefined
-        posts: undefined   // FIXED: Changed from null to undefined
+        username: `temp_${userId.slice(-8)}` // Temporary username
       },
       false // isAdmin = false
       // hasJoined will be false by default from schema

@@ -304,27 +304,27 @@ export function broadcastToSession(sessionId: string, event: SSEEvent) {
   const deadConnections: SSEConnection[] = []
   let successCount = 0
 
-  // 🔧 FIXED: Convert Set to Array to get proper index
-  const connectionsArray = Array.from(connections)
-  connectionsArray.forEach((connection, index) => {
-    console.log(`📡 SSE: Processing connection #${index + 1}: ${connection.connectionId}, active: ${connection.isActive}`)
+  // 🔧 FIXED: Convert Set to Array for proper index access
+const connectionsArray = Array.from(connections)
+connectionsArray.forEach((connection, index) => {
+  console.log(`📡 SSE: Processing connection #${index + 1}: ${connection.connectionId}, active: ${connection.isActive}`)
 
-    if (!connection.isActive) {
-      console.log(`💀 SSE: Found INACTIVE connection ${connection.connectionId} for session ${upperSessionId}`)
-      deadConnections.push(connection)
-      return
-    }
+  if (!connection.isActive) {
+    console.log(`💀 SSE: Found INACTIVE connection ${connection.connectionId} for session ${upperSessionId}`)
+    deadConnections.push(connection)
+    return
+  }
 
-    try {
-      connection.writer.write(eventData)
-      successCount++
-      console.log(`✅ SSE: Successfully sent to connection ${connection.connectionId}`)
-    } catch (error) {
-      console.log(`💀 SSE: Write FAILED for connection ${connection.connectionId} session ${upperSessionId}, marking dead:`, error)
-      connection.isActive = false
-      deadConnections.push(connection)
-    }
-  })
+  try {
+    connection.writer.write(eventData)
+    successCount++
+    console.log(`✅ SSE: Successfully sent to connection ${connection.connectionId}`)
+  } catch (error) {
+    console.log(`💀 SSE: Write FAILED for connection ${connection.connectionId} session ${upperSessionId}, marking dead:`, error)
+    connection.isActive = false
+    deadConnections.push(connection)
+  }
+})
 
   // Cleanup dead connections
   deadConnections.forEach(deadConnection => {
