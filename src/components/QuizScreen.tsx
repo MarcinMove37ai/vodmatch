@@ -182,6 +182,8 @@ export default function QuizScreen({
   useEffect(() => {
     setQuestionStartTime(new Date())
     setSelectedOption(null)
+    // Przewiń do góry ekranu przy zmianie pytania
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }, [currentQuestionIndex])
 
   const handleAnswerSelect = useCallback((option: 'A' | 'B' | 'C' | 'D') => {
@@ -251,18 +253,6 @@ export default function QuizScreen({
               <span className="text-emerald-400 text-sm">Processing...</span>
             </div>
           )}
-
-          {/* Session info z real-time status - fixed at bottom */}
-          <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-20">
-            <div className="inline-flex items-center space-x-4 px-4 py-2 rounded-full bg-gray-900/40 border border-gray-700/40 backdrop-blur-sm">
-              <div className="flex items-center space-x-2">
-                <div className={`w-2 h-2 rounded-full animate-pulse ${
-                  isConnected ? 'bg-green-400' : 'bg-blue-400'
-                }`}></div>
-                <span className="text-gray-400 text-xs font-medium">Session {sessionId}</span>
-              </div>
-            </div>
-          </div>
         </motion.div>
       </div>
     )
@@ -304,11 +294,11 @@ export default function QuizScreen({
                         className="w-full text-center space-y-8"
                     >
                         <div>
-                            <h1 className="text-xl md:text-2xl font-medium text-blue-300/80 mb-4">
+                            <h1 className="text-sm md:text-xl font-medium text-blue-300/80 mb-4">
                                 Question {currentQuestion.id}: {currentQuestion.title}
                             </h1>
 
-                            <h2 className="text-3xl md:text-4xl lg:text-5xl font-light text-transparent bg-clip-text bg-gradient-to-r from-gray-100 to-gray-400 mb-12 leading-tight">
+                            <h2 className="text-base md:text-xl font-light text-transparent bg-clip-text bg-gradient-to-r from-gray-100 to-gray-400 mb-12 leading-tight">
                                 {currentQuestion.text}
                             </h2>
                         </div>
@@ -323,7 +313,7 @@ export default function QuizScreen({
                                     animate={{ opacity: 1, x: 0 }}
                                     transition={{ duration: 0.6, delay: index * 0.08 }}
                                     onClick={() => handleAnswerSelect(option.letter)}
-                                    className={`relative w-full p-5 rounded-xl border text-left transition-all duration-300 group
+                                    className={`relative w-full p-3 rounded-xl border text-left transition-all duration-300 group
                                         ${selectedOption === option.letter
                                             ? 'border-blue-500/50 bg-blue-900/30'
                                             : 'border-gray-700/50 bg-gray-900/30 hover:bg-gray-800/50 hover:border-gray-600'
@@ -339,27 +329,16 @@ export default function QuizScreen({
                                     )}
 
                                     <div className="relative flex items-center space-x-4">
-                                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center font-mono text-lg transition-all duration-300
+                                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-mono text-base transition-all duration-300
                                             ${selectedOption === option.letter
                                                 ? 'bg-blue-500 text-white'
                                                 : 'bg-gray-800 text-gray-400 group-hover:bg-gray-700 group-hover:text-gray-300'
                                         }`}>
                                             {option.letter}
                                         </div>
-                                        <p className="flex-1 text-base md:text-lg text-gray-300 group-hover:text-white transition-colors duration-200">
+                                        <p className="flex-1 text-sm md:text-base text-gray-300 group-hover:text-white transition-colors duration-200">
                                             {option.text}
                                         </p>
-                                        <AnimatePresence>
-                                        {selectedOption === option.letter && (
-                                            <motion.div
-                                                initial={{ scale: 0, opacity: 0 }}
-                                                animate={{ scale: 1, opacity: 1, transition: { type: "spring", stiffness: 400, damping: 25 } }}
-                                                exit={{ scale: 0, opacity: 0 }}
-                                            >
-                                                <Check className="w-6 h-6 text-blue-400" />
-                                            </motion.div>
-                                        )}
-                                        </AnimatePresence>
                                     </div>
                                 </motion.button>
                             ))}
@@ -392,22 +371,6 @@ export default function QuizScreen({
                     </motion.div>
                 </AnimatePresence>
             </main>
-
-            {/* Real-time connection status - fixed at bottom */}
-            <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-20">
-                <div className="inline-flex items-center space-x-4 px-4 py-2 rounded-full bg-gray-900/40 border border-gray-700/40 backdrop-blur-sm">
-                    <div className="flex items-center space-x-2">
-                        <div className={`w-2 h-2 rounded-full animate-pulse ${
-                            isConnected ? 'bg-green-400' : 'bg-blue-400'
-                        }`}></div>
-                        <span className="text-gray-400 text-xs font-medium">Session {sessionId}</span>
-                    </div>
-                    <div className="w-px h-4 bg-gray-600/50"></div>
-                    <span className="text-gray-500 text-xs font-light">
-                        {isAdmin ? 'Host' : 'Participant'}
-                    </span>
-                </div>
-            </div>
         </div>
     </div>
   )
