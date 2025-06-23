@@ -44,6 +44,12 @@ model SessionProfile {
   quiz_result Json?   @map("quiz_result") @default("{}")   // Wyniki quizu (JSON)
   seen        String[] @default([])          // Lista widzianych rzeczy
 
+  // 🆕 NOWE POLA: Social Media Analysis
+  social_posts           Json?     @map("social_posts")              // Tablica oczyszczonych tekstów postów
+  social_analysis_status String?   @map("social_analysis_status") @db.VarChar(20)  // 'pending' | 'in_progress' | 'completed' | 'failed'
+  social_analysis_error  String?   @map("social_analysis_error") @db.Text          // Opis błędu jeśli wystąpił
+  social_analyzed_at     DateTime? @map("social_analyzed_at")                      // Timestamp ukończenia analizy
+
   // Metadane
   isAdmin     Boolean  @default(false) @map("is_admin")
 

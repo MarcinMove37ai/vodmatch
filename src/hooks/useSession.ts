@@ -5,13 +5,20 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   AppSession,
   ClientSession,
-  SessionProfile,
-  QuizResults
+  SessionProfile
 } from '@/types/session'
 import { StreamingPlatform } from '@/types/platform'
 import { ViewingMode } from '@/types/mode'
 import { SocialProfile } from '@/types/social'
 import { sessionManager, ClientSessionManager } from '@/lib/sessionManager'
+
+// 🆕 QUIZ TYPES: Add quiz answer types to useSession
+interface QuizAnswer {
+  questionId: number
+  selectedOption: 'A' | 'B' | 'C' | 'D'
+  answeredAt: Date
+  timeSpent: number // czas w sekundach
+}
 
 interface UseSessionReturn {
   // Stan sesji
@@ -30,7 +37,8 @@ interface UseSessionReturn {
   updateMode: (mode: ViewingMode) => Promise<boolean>
   updateAdminProfile: (socialProfile: SocialProfile) => Promise<boolean>
   updateParticipantProfile: (socialProfile: SocialProfile) => Promise<boolean>
-  submitQuizResults: (results: QuizResults) => Promise<boolean>
+  submitQuizResults: (answers: QuizAnswer[]) => Promise<boolean> // 🔧 UPDATED: Now takes QuizAnswer[]
+  getQuizResults: () => Promise<any[]> // 🆕 NEW: Get quiz results with ranking
 
   // Metody uczestników
   joinSession: (sessionId: string) => Promise<boolean>
@@ -292,8 +300,42 @@ export function useSession(): UseSessionReturn {
     return await updateSession('update_participant_profile', { profile: sessionProfile })
   }, [updateSession, convertToSessionProfile])
 
-  // Wyślij wyniki quizu
-  const submitQuizResults = useCallback(async (results: QuizResults): Promise<boolean> => {
+  // 🔧 FIX: Move refreshSession before submitQuizResults to avoid initialization error
+  const refreshSession = useCallback(async (): Promise<boolean> => {
+    if (!clientSession) return false
+    return await loadSessionFromServer(clientSession.sessionId, false, false)
+  }, [clientSession, loadSessionFromServer])
+
+  // 🆕 QUIZ RESULTS: Get quiz results with ranking
+  const getQuizResults = useCallback(async (): Promise<any[]> => {
+    if (!clientSession || !session) {
+      console.log('❌ No active session for quiz results')
+      return []
+    }
+
+    try {
+      console.log(`📊 Getting quiz results for session ${session.sessionId}`)
+
+      const response = await fetch(`/api/session/${session.sessionId}/quiz-results`)
+
+      if (!response.ok) {
+        throw new Error(`Failed to get quiz results: ${response.status}`)
+      }
+
+      const results = await response.json()
+      console.log(`✅ Quiz results received:`, results)
+
+      return results
+
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+      console.error('❌ Failed to get quiz results:', errorMessage)
+      return []
+    }
+  }, [clientSession, session])
+
+  // 🆕 QUIZ RESULTS: Submit quiz results with answers and timing
+  const submitQuizResults = useCallback(async (answers: QuizAnswer[]): Promise<boolean> => {
     if (!clientSession || !session) {
       setError('No active session')
       return false
@@ -305,23 +347,51 @@ export function useSession(): UseSessionReturn {
 
       console.log(`📝 Submitting quiz results for session ${session.sessionId}`)
 
+      // Calculate total time and create QuizResults object
+      const totalTime = answers.reduce((sum, answer) => sum + answer.timeSpent, 0)
+      const completedAt = new Date()
+
+      // Get user display name from session profiles
+      const sessionWithProfiles = session as any
+      const userProfile = sessionWithProfiles.profiles?.find((p: any) => p.userId === clientSession.userId)
+      const displayName = userProfile?.username || clientSession.userId
+
+      const quizResults = {
+        userId: clientSession.userId,
+        displayName: displayName,
+        answers: answers,
+        completedAt: completedAt,
+        totalTime: Math.round(totalTime), // Round to seconds
+        questionsCount: answers.length
+      }
+
+      console.log(`📊 Quiz results summary:`, {
+        userId: quizResults.userId,
+        displayName: quizResults.displayName,
+        totalTime: quizResults.totalTime,
+        questionsCount: quizResults.questionsCount
+      })
+
       const response = await fetch(`/api/session/${session.sessionId}/quiz`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: clientSession.userId,
-          results
+          quizResults: quizResults
         })
       })
 
       if (!response.ok) {
-        throw new Error(`Failed to submit quiz: ${response.status}`)
+        const errorData = await response.json()
+        throw new Error(errorData.error || `Failed to submit quiz: ${response.status}`)
       }
 
-      const updatedSession: AppSession = await response.json()
-      setSession(updatedSession)
+      const result = await response.json()
+      console.log(`✅ Quiz results submitted successfully:`, result)
 
-      console.log(`✅ Quiz results submitted successfully`)
+      // Refresh session to get updated status
+      await refreshSession()
+
       return true
 
     } catch (err) {
@@ -332,7 +402,7 @@ export function useSession(): UseSessionReturn {
     } finally {
       setIsLoading(false)
     }
-  }, [clientSession, session])
+  }, [clientSession, session, refreshSession])
 
   // Dołącz do sesji
   const joinSession = useCallback(async (sessionId: string): Promise<boolean> => {
@@ -429,12 +499,6 @@ const getParticipantStatus = useCallback((): { ready: number, total: number } =>
   return { ready, total: participants.length }
 }, [session])
 
-  // Odśwież sesję
-  const refreshSession = useCallback(async (): Promise<boolean> => {
-    if (!clientSession) return false
-    return await loadSessionFromServer(clientSession.sessionId, false, false)
-  }, [clientSession, loadSessionFromServer])
-
   // Computed properties
   const isAdmin = clientSession?.isAdmin ?? false
   const canContinue = session ?
@@ -458,6 +522,7 @@ const getParticipantStatus = useCallback((): { ready: number, total: number } =>
     updateAdminProfile,
     updateParticipantProfile,
     submitQuizResults,
+    getQuizResults, // 🆕 NEW: Get quiz results
     joinSession,
     refreshSession,
 

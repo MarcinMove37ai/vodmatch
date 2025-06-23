@@ -1,4 +1,4 @@
-// src/app/page.tsx - NAPRAWKA REAL-TIME
+// src/app/page.tsx - CRITICAL FIX - RACE CONDITION RESOLVED
 'use client'
 
 import { useState, useEffect } from 'react'
@@ -16,11 +16,21 @@ import ModeSelector from '@/components/ModeSelector'
 import SocialProfileInput from '@/components/SocialProfileInput'
 import QRCodeScreen from '@/components/QRCodeScreen'
 import WaitingRoomScreen from '@/components/WaitingRoomScreen'
+// 🆕 QUIZ INTEGRATION: Import real QuizScreen component
+import QuizScreen from '@/components/QuizScreen'
 
 // Types
 import { StreamingPlatform } from '@/types/platform'
 import { ViewingMode } from '@/types/mode'
 import { SocialProfile } from '@/types/social'
+
+// 🆕 QUIZ TYPES: Add quiz answer types
+interface QuizAnswer {
+  questionId: number
+  selectedOption: 'A' | 'B' | 'C' | 'D'
+  answeredAt: Date
+  timeSpent: number // czas w sekundach
+}
 
 const CORRECT_PASSWORD = 'aicc$'
 
@@ -58,6 +68,98 @@ const clearCurrentStep = (sessionId: string, userId: string) => {
   }
 }
 
+// 🆕 UNIFIED: Same completion logic as backend - CRITICAL FIX
+const userHasCompletedQuiz = (session: any, userId: string): boolean => {
+  const sessionWithProfiles = session as any
+  if (!sessionWithProfiles?.profiles) return false
+
+  const userProfile = sessionWithProfiles.profiles.find((p: any) => p.userId === userId)
+  if (!userProfile) return false
+
+  const quizResult = userProfile.quiz_result
+
+  // 🆕 ENHANCED: Exactly same logic as backend isQuizResultComplete()
+  const hasCompleted = !!(quizResult &&
+           typeof quizResult === 'object' &&
+           quizResult.completedAt &&
+           Array.isArray(quizResult.answers) &&
+           typeof quizResult.totalTime !== 'undefined' &&
+           quizResult.answers.length > 0)
+
+  if (hasCompleted) {
+    console.log(`✅ User ${userId} (${userProfile.username}) has completed quiz - should be on results page`)
+    console.log(`  📊 Quiz data: completedAt=${!!quizResult.completedAt}, answers=${quizResult.answers?.length || 0}, totalTime=${quizResult.totalTime}`)
+  } else {
+    console.log(`❌ User ${userId} (${userProfile.username}) has NOT completed quiz yet`)
+    if (quizResult && typeof quizResult === 'object') {
+      console.log(`  🔍 Quiz data debug: completedAt=${!!quizResult.completedAt}, answers=${Array.isArray(quizResult.answers) ? quizResult.answers.length : 'not array'}, totalTime=${quizResult.totalTime}`)
+    } else {
+      console.log(`  🔍 No quiz_result or invalid format: ${typeof quizResult}`)
+    }
+  }
+
+  return hasCompleted
+}
+
+// 🆕 ENHANCED: More detailed completion stats with debugging
+const getQuizCompletionStats = (session: any): {
+  completed: number,
+  total: number,
+  completedUsers: string[],
+  pendingUsers: string[],
+  debugInfo: any[]
+} => {
+  const sessionWithProfiles = session as any
+  if (!sessionWithProfiles?.profiles) return {
+    completed: 0,
+    total: 0,
+    completedUsers: [],
+    pendingUsers: [],
+    debugInfo: []
+  }
+
+  const completedUsers: string[] = []
+  const pendingUsers: string[] = []
+  const debugInfo: any[] = []
+
+  sessionWithProfiles.profiles.forEach((profile: any) => {
+    const isCompleted = userHasCompletedQuiz(session, profile.userId)
+    const userLabel = `${profile.username}(${profile.isAdmin ? 'admin' : 'participant'})`
+
+    // 🆕 DEBUG: Collect detailed info about each profile
+    const quizResult = profile.quiz_result
+    const profileDebug = {
+      userId: profile.userId,
+      username: profile.username,
+      isAdmin: profile.isAdmin,
+      isCompleted,
+      hasQuizResult: !!quizResult && typeof quizResult === 'object',
+      quizResultStructure: quizResult ? {
+        hasCompletedAt: !!quizResult.completedAt,
+        hasAnswers: Array.isArray(quizResult.answers),
+        answersLength: Array.isArray(quizResult.answers) ? quizResult.answers.length : 0,
+        hasTotalTime: typeof quizResult.totalTime !== 'undefined',
+        totalTime: quizResult.totalTime
+      } : null
+    }
+    debugInfo.push(profileDebug)
+
+    if (isCompleted) {
+      completedUsers.push(userLabel)
+    } else {
+      pendingUsers.push(userLabel)
+    }
+  })
+
+  return {
+    completed: completedUsers.length,
+    total: sessionWithProfiles.profiles.length,
+    completedUsers,
+    pendingUsers,
+    debugInfo
+  }
+}
+
 export default function VodMatchApp() {
   // Device detection
   const { isMobile } = useDeviceDetection()
@@ -73,6 +175,7 @@ export default function VodMatchApp() {
     updateMode,
     updateAdminProfile,
     updateParticipantProfile,
+    submitQuizResults, // 🆕 ADD: New quiz results submission
     clearSession,
     refreshSession,
     isAdmin,
@@ -95,17 +198,18 @@ export default function VodMatchApp() {
   const shouldEnableRealTime = () => {
     if (!session?.sessionId || !isAuthenticated) return false
 
-    // 🆕 ROZSZERZONE: Dodaj participant_profile do real-time steps
+    // 🆕 ROZSZERZONE: Dodaj quiz do real-time steps
     const realTimeSteps: AppStep[] = [
-      'participant_profile', // 🆕 DODANE: Teraz participant ma real-time od razu po dołączeniu
+      'participant_profile',
       'qr_code',
-      'waiting_room'
+      'waiting_room',
+      'quiz' // 🆕 DODANE: Quiz też potrzebuje real-time dla synchronizacji
     ]
 
     return realTimeSteps.includes(currentStep)
   }
 
-  // 🆕 REAL-TIME SESSION: Włączony dla więcej kroków
+  // 🆕 REAL-TIME SESSION: Włączony także dla quiz
   const {
     session: realTimeSession,
     isConnected: realTimeConnected,
@@ -115,10 +219,9 @@ export default function VodMatchApp() {
     lastUpdate: realTimeLastUpdate,
     reconnect: realTimeReconnect
   } = useRealTimeSessionWithFallback(
-    // 🔧 NAPRAWKA: Używaj shouldEnableRealTime() zamiast hardcoded kroków
     shouldEnableRealTime() ? session?.sessionId || '' : '',
     session,
-    shouldEnableRealTime() // enableSSE based on step and auth status
+    shouldEnableRealTime()
   )
 
   // 🎯 Auto-authenticate from localStorage if clientSession exists
@@ -147,7 +250,7 @@ export default function VodMatchApp() {
 
         // 🔧 NAPRAWKA: Validate if saved step is still valid based on session progress and user type
         if (session) {
-          const validStep = validateStepAgainstSession(savedStep, session, isAdmin)
+          const validStep = validateStepAgainstSession(savedStep, session, isAdmin, clientSession.userId)
           if (validStep !== savedStep) {
             console.log(`🔄 Adjusting step from ${savedStep} to ${validStep} based on session progress`)
             setCurrentStep(validStep)
@@ -171,7 +274,7 @@ export default function VodMatchApp() {
         return
       }
 
-      const determinedStep = determineStepFromSession(session, isAdmin)
+      const determinedStep = determineStepFromSession(session, isAdmin, clientSession.userId)
 
       console.log(`🎯 Determined currentStep from session: ${determinedStep}`)
       setCurrentStep(determinedStep)
@@ -179,24 +282,45 @@ export default function VodMatchApp() {
     }, 100)
 
     return () => clearTimeout(timeoutId)
-  }, [isAuthenticated, clientSession, isAdmin, session]) // 🔧 NAPRAWKA: Dodano session z powrotem
+  }, [isAuthenticated, clientSession, isAdmin, session])
 
-  // 🔧 NAPRAWKA: Reaguj na real-time updates sesji
+  // 🔧 NAPRAWKA: Reaguj na real-time updates sesji z PROTECTION
   useEffect(() => {
     if (realTimeSession && isAuthenticated && clientSession) {
       console.log('🔄 Real-time session update detected, checking if step needs update')
 
-      const currentValidStep = validateStepAgainstSession(currentStep, realTimeSession, isAdmin)
+      const currentValidStep = validateStepAgainstSession(currentStep, realTimeSession, isAdmin, clientSession.userId)
       if (currentValidStep !== currentStep) {
+        // 🛡️ RACE CONDITION PROTECTION: Nie resetuj z results do quiz
+        if (currentStep === 'results' && currentValidStep === 'quiz') {
+          console.log('🛡️ Preventing reset from results to quiz - race condition protection')
+          return
+        }
+
         console.log(`🔄 Real-time triggered step change: ${currentStep} → ${currentValidStep}`)
         setCurrentStep(currentValidStep)
         saveCurrentStep(clientSession.sessionId, clientSession.userId, currentValidStep)
       }
     }
-  }, [realTimeSession, isAuthenticated, clientSession, currentStep, isAdmin]) // Monitor real-time session changes
+  }, [realTimeSession, isAuthenticated, clientSession, currentStep, isAdmin])
 
-  // 🆕 NEW: Determine step from session based on user type
-  const determineStepFromSession = (session: any, isAdmin: boolean): AppStep => {
+  // 🆕 NEW: Determine step from session based on user type - ENHANCED FOR GROUP
+  const determineStepFromSession = (session: any, isAdmin: boolean, userId: string): AppStep => {
+    // 🎯 PRIORITY FIX: Check results status FIRST for both admin and participants
+    if (session.status === 'results') {
+      return 'results'
+    }
+
+    // 🆕 KLUCZOWA LOGIKA: Jeśli użytkownik ukończył quiz, zawsze pokaż results
+    if (userHasCompletedQuiz(session, userId)) {
+      const stats = getQuizCompletionStats(session)
+      console.log(`🏆 User ${userId} completed quiz - forcing results page`)
+      console.log(`📊 Quiz completion stats: ${stats.completed}/${stats.total} completed`)
+      console.log(`✅ Completed: ${stats.completedUsers.join(', ')}`)
+      console.log(`⏳ Pending: ${stats.pendingUsers.join(', ')}`)
+      return 'results'
+    }
+
     if (isAdmin) {
       // 🔵 ADMIN FLOW: platforms → mode → profile → qr_code → waiting_room → quiz → results
       if (!session?.selectedPlatforms?.length) {
@@ -206,15 +330,13 @@ export default function VodMatchApp() {
       } else if (!session.adminProfile) {
         return 'profile'
       } else if (session.status === 'recruiting') {
-        return 'qr_code' // Admin shows QR code for recruitment
+        return 'qr_code'
       } else if (session.status === 'collecting_profiles' || session.status === 'ready_for_quiz') {
-        return 'waiting_room' // Admin waits for participants to add profiles
+        return 'waiting_room'
       } else if (session.status === 'quiz_active' || session.status === 'quiz') {
         return 'quiz'
-      } else if (session.status === 'results') {
-        return 'results'
       } else {
-        // Check viewing mode for default destination
+        // Check viewing mode for default destination (only if not results)
         const viewingModeId = typeof session.viewingMode === 'string'
           ? session.viewingMode
           : session?.viewingMode?.id
@@ -222,15 +344,13 @@ export default function VodMatchApp() {
         if (viewingModeId === 'solo') {
           return 'quiz' // Solo goes directly to quiz
         } else {
-          return 'qr_code' // Multi-user goes to QR code
+          return 'qr_code' // Multi-user (couple/group) goes to QR code
         }
       }
     } else {
       // 🟢 PARTICIPANT FLOW: participant_profile → waiting_room → quiz → results
-
-      // Check if participant has added their profile
       const participantProfile = session.profiles?.find((p: any) =>
-        p.userId === clientSession?.userId && !p.isAdmin
+        p.userId === userId && !p.isAdmin
       )
 
       const hasRealProfile = participantProfile &&
@@ -238,21 +358,38 @@ export default function VodMatchApp() {
         participantProfile.username !== `temp_${participantProfile.userId.slice(-8)}`
 
       if (!participantProfile || !hasRealProfile) {
-        return 'participant_profile' // Participant needs to add profile
+        return 'participant_profile'
       } else if (session.status === 'collecting_profiles' || session.status === 'recruiting' || session.status === 'ready_for_quiz') {
-        return 'waiting_room' // Waiting for admin to start quiz
+        return 'waiting_room'
       } else if (session.status === 'quiz_active' || session.status === 'quiz') {
         return 'quiz'
-      } else if (session.status === 'results') {
-        return 'results'
       } else {
         return 'waiting_room' // Default for participant with profile
       }
     }
   }
 
-  // 🆕 ENHANCED: Validate step against session progress and user type
-  const validateStepAgainstSession = (step: AppStep, session: any, isAdmin: boolean): AppStep => {
+  // 🆕 SIMPLIFIED: Validate step against session - RACE CONDITION FIX
+  const validateStepAgainstSession = (step: AppStep, session: any, isAdmin: boolean, userId: string): AppStep => {
+    // 🎯 PRIORITY 1: Jeśli session status = 'results', wszyscy na results
+    if (session.status === 'results') {
+      console.log(`🏆 Global session status is 'results' - all users go to results`)
+      return 'results'
+    }
+
+    // 🎯 PRIORITY 2: Jeśli user ma quiz_result = może być na results (RACE CONDITION FIX)
+    if (step === 'results') {
+      const hasQuizResult = userHasCompletedQuiz(session, userId)
+      if (hasQuizResult) {
+        console.log(`✅ User ${userId} has quiz_result - staying on results regardless of session status`)
+        return 'results'  // ✅ Ma wynik = zostaje na results
+      } else {
+        console.log(`❌ User ${userId} has no quiz_result - redirecting to quiz`)
+        return 'quiz'     // ❌ Nie ma wyniku = wraca do quiz
+      }
+    }
+
+    // 🎯 PRIORITY 3: Reszta walidacji dla innych kroków
     if (isAdmin) {
       // Admin validation logic
       if (step === 'mode' && !session.selectedPlatforms?.length) {
@@ -268,13 +405,10 @@ export default function VodMatchApp() {
       if (step === 'waiting_room' && (session.status === 'quiz_active' || session.status === 'quiz')) {
         return 'quiz'
       }
-      if (step === 'results' && session.status !== 'results') {
-        return 'quiz'
-      }
     } else {
       // Participant validation logic
       const participantProfile = session.profiles?.find((p: any) =>
-        p.userId === clientSession?.userId && !p.isAdmin
+        p.userId === userId && !p.isAdmin
       )
 
       const hasRealProfile = participantProfile &&
@@ -288,18 +422,16 @@ export default function VodMatchApp() {
       if ((step === 'participant_profile' || step === 'waiting_room') && (session.status === 'quiz_active' || session.status === 'quiz')) {
         return 'quiz'
       }
-      if (step === 'results' && session.status !== 'results') {
-        return 'quiz'
-      }
     }
 
-    // Step is valid
+    // Step is valid - no changes needed
     return step
   }
 
   // 🎯 Helper function to update currentStep
   const updateCurrentStep = (newStep: AppStep) => {
     if (clientSession) {
+      console.log(`🔄 Updating currentStep: ${currentStep} → ${newStep} for user ${clientSession.userId}`)
       setCurrentStep(newStep)
       saveCurrentStep(clientSession.sessionId, clientSession.userId, newStep)
     }
@@ -396,7 +528,7 @@ export default function VodMatchApp() {
       if (viewingModeId === 'solo') {
         updateCurrentStep('quiz') // Solo goes directly to quiz
       } else {
-        updateCurrentStep('qr_code') // Multi-user goes to QR code
+        updateCurrentStep('qr_code') // Multi-user (couple/group) goes to QR code
       }
     } else {
       console.error('❌ Failed to save admin profile to session')
@@ -466,17 +598,72 @@ export default function VodMatchApp() {
     }
   }
 
-  // Debug info component
+  // 🆕 QUIZ HANDLER: Handle quiz completion - RACE CONDITION FIX
+  const handleQuizComplete = async (answers: QuizAnswer[]): Promise<void> => {
+    if (!clientSession || !session) {
+      console.error('❌ No active session for quiz completion')
+      return
+    }
+
+    try {
+      console.log(`📝 Quiz completed by ${clientSession.userId}, submitting ${answers.length} answers`)
+
+      // 🆕 DEBUG: Show completion stats before submission
+      const statsBefore = getQuizCompletionStats(session)
+      console.log(`📊 Before submission - Completion stats: ${statsBefore.completed}/${statsBefore.total}`)
+      console.log(`✅ Already completed: ${statsBefore.completedUsers.join(', ')}`)
+      console.log(`⏳ Still pending: ${statsBefore.pendingUsers.join(', ')}`)
+
+      // 🆕 RACE CONDITION FIX: Ustaw lokalnie results PRZED submission
+      console.log('🏆 Setting local step to results BEFORE submitting to prevent race condition')
+      updateCurrentStep('results')
+
+      // Use new submitQuizResults signature that takes QuizAnswer[]
+      const success = await submitQuizResults(answers)
+
+      if (success) {
+        console.log('✅ Quiz results submitted successfully!')
+        console.log('🏆 User should now stay on results screen - protected by race condition fix')
+
+        // 🆕 OPTIONAL: Refresh session to get latest completion stats (but don't change step)
+        try {
+          await refreshSession()
+          const statsAfter = getQuizCompletionStats(session)
+          console.log(`📊 After submission - Completion stats: ${statsAfter.completed}/${statsAfter.total}`)
+        } catch (refreshError) {
+          console.log('⚠️ Could not refresh session after quiz completion:', refreshError)
+        }
+      } else {
+        console.error('❌ Failed to submit quiz results')
+        // Wróć do quiz jeśli submission failed
+        updateCurrentStep('quiz')
+      }
+
+    } catch (error) {
+      console.error('❌ Error submitting quiz results:', error)
+      // Wróć do quiz jeśli jest błąd
+      updateCurrentStep('quiz')
+    }
+  }
+
+  // 🔧 WRAPPER: Convert refreshSession to void return type
+  const handleRefreshSession = async (): Promise<void> => {
+    await refreshSession()
+  }
+
+  // Enhanced debug info component with detailed completion debugging
   const DebugInfo = () => {
     if (process.env.NODE_ENV !== 'development' || !showDebug) return null
 
     const savedStep = clientSession ? loadCurrentStep(clientSession.sessionId, clientSession.userId) : null
+    const hasCompletedQuiz = clientSession && session ? userHasCompletedQuiz(session, clientSession.userId) : false
+    const quizStats = session ? getQuizCompletionStats(session) : null
 
     // 🔧 HELPER: Type assertion for profiles access
     const sessionWithProfiles = session as any
 
     return (
-      <div className="fixed bottom-4 left-4 right-4 bg-black/90 text-green-400 p-3 rounded-lg text-xs font-mono z-50 max-h-48 overflow-y-auto">
+      <div className="fixed bottom-4 left-4 right-4 bg-black/90 text-green-400 p-3 rounded-lg text-xs font-mono z-50 max-h-80 overflow-y-auto">
         <div className="flex justify-between items-center mb-2">
           <span className="text-green-300 font-bold">🐛 DEBUG SESSION</span>
           <button
@@ -490,13 +677,51 @@ export default function VodMatchApp() {
         <div className="space-y-1">
           <div><span className="text-yellow-400">Current Step:</span> {currentStep}</div>
           <div><span className="text-yellow-400">Saved Step:</span> {savedStep || 'None'}</div>
+          <div><span className="text-yellow-400">Quiz Completed:</span> {hasCompletedQuiz ? '✅' : '❌'}</div>
           <div><span className="text-yellow-400">Auth:</span> {isAuthenticated ? '✅' : '❌'}</div>
           <div><span className="text-yellow-400">User Type:</span> {isAdmin ? '🔵 Admin' : '🟢 Participant'}</div>
           <div><span className="text-yellow-400">Session ID:</span> {session?.sessionId || 'None'}</div>
           <div><span className="text-yellow-400">User ID:</span> {clientSession?.userId || 'None'}</div>
           <div><span className="text-yellow-400">Session Status:</span> {session?.status || 'None'}</div>
 
-          {/* 🔧 NAPRAWKA: Enhanced real-time debug info */}
+          {/* 🆕 ENHANCED: Detailed quiz completion debugging */}
+          {quizStats && (
+            <>
+              <div><span className="text-yellow-400">Quiz Progress:</span> {quizStats.completed}/{quizStats.total} completed</div>
+              {quizStats.completedUsers.length > 0 && (
+                <div><span className="text-green-400">✅ Completed:</span> {quizStats.completedUsers.join(', ')}</div>
+              )}
+              {quizStats.pendingUsers.length > 0 && (
+                <div><span className="text-red-400">⏳ Pending:</span> {quizStats.pendingUsers.join(', ')}</div>
+              )}
+
+              {/* 🆕 DETAILED: Show completion structure for each user */}
+              {quizStats.debugInfo && quizStats.debugInfo.length > 0 && (
+                <div className="mt-2 border-t border-gray-600 pt-2">
+                  <div className="text-cyan-400 font-bold">📊 DETAILED COMPLETION DEBUG:</div>
+                  {quizStats.debugInfo.map((profile: any, index: number) => (
+                    <div key={index} className="ml-2 text-xs">
+                      <span className={profile.isCompleted ? 'text-green-400' : 'text-red-400'}>
+                        {profile.isCompleted ? '✅' : '❌'} {profile.username} ({profile.isAdmin ? 'admin' : 'participant'})
+                      </span>
+                      {profile.quizResultStructure && (
+                        <div className="ml-4 text-gray-400">
+                          completedAt: {profile.quizResultStructure.hasCompletedAt ? '✅' : '❌'},
+                          answers: {profile.quizResultStructure.hasAnswers ? `✅(${profile.quizResultStructure.answersLength})` : '❌'},
+                          totalTime: {profile.quizResultStructure.hasTotalTime ? `✅(${profile.quizResultStructure.totalTime}s)` : '❌'}
+                        </div>
+                      )}
+                      {!profile.hasQuizResult && (
+                        <div className="ml-4 text-gray-500">No quiz_result data</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Real-time debug info */}
           <div><span className="text-yellow-400">Should Enable RT:</span> {shouldEnableRealTime() ? '✅' : '❌'}</div>
           <div><span className="text-yellow-400">Real-time Connected:</span> {realTimeConnected ? '✅' : '❌'}</div>
           <div><span className="text-yellow-400">Connection State:</span> {realTimeConnectionState}</div>
@@ -520,11 +745,6 @@ export default function VodMatchApp() {
                 const status = getParticipantStatus()
                 return `${status.ready}/${status.total}`
               })()}</div>
-              {sessionWithProfiles.profiles && (
-                <div><span className="text-yellow-400">Profiles:</span> {sessionWithProfiles.profiles.map((p: any) =>
-                  `${p.username}(${p.isAdmin ? 'admin' : 'participant'})${p.pic_url ? '🖼️' : '👤'}`
-                ).join(', ')}</div>
-              )}
             </>
           )}
 
@@ -540,11 +760,6 @@ export default function VodMatchApp() {
         </div>
       </div>
     )
-  }
-
-  // 🔧 WRAPPER: Convert refreshSession to void return type
-  const handleRefreshSession = async (): Promise<void> => {
-    await refreshSession()
   }
 
   // Show desktop blocker on desktop
@@ -598,7 +813,7 @@ export default function VodMatchApp() {
         </>
       )}
 
-      {/* 🟢 PARTICIPANT FLOW - 🔧 NAPRAWKA: Teraz z real-time! */}
+      {/* 🟢 PARTICIPANT FLOW */}
       {currentStep === 'participant_profile' && !isAdmin && (
         <>
           <LogoutButton onLogout={handleLogout} />
@@ -647,37 +862,87 @@ export default function VodMatchApp() {
         </>
       )}
 
-      {/* QUIZ SCREEN */}
+      {/* 🆕 QUIZ SCREEN - Real QuizScreen component with real-time */}
       {currentStep === 'quiz' && (
         <>
           <LogoutButton onLogout={handleLogout} />
-          <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-purple-900 flex items-center justify-center">
-            <div className="text-center space-y-4">
-              <h1 className="text-3xl font-light text-white">Quiz Component</h1>
-              <p className="text-gray-400">
-                {isAdmin ? 'Quiz - Admin View' : 'Quiz - Participant View'}
-              </p>
-              <p className="text-blue-400">Coming next: Movie preference quiz</p>
-              {session?.viewingMode && (
-                <p className="text-green-400">Mode: {
-                  typeof session.viewingMode === 'string'
-                    ? session.viewingMode
-                    : session.viewingMode.displayName || session.viewingMode.id
-                }</p>
-              )}
-            </div>
-          </div>
+          <QuizScreen
+            sessionId={session?.sessionId || ''}
+            session={realTimeSession || session}
+            isAdmin={isAdmin}
+            realTimeConnected={realTimeConnected}
+            realTimeConnectionState={realTimeConnectionState}
+            realTimeEventCount={realTimeEventCount}
+            realTimeLastUpdate={realTimeLastUpdate}
+            realTimeReconnect={realTimeReconnect}
+            onQuizComplete={handleQuizComplete}
+            onRefreshSession={handleRefreshSession}
+          />
         </>
       )}
 
-      {/* RESULTS SCREEN */}
+      {/* RESULTS SCREEN - Enhanced for COUPLE & GROUP - shows completion status */}
       {currentStep === 'results' && (
         <>
           <LogoutButton onLogout={handleLogout} />
           <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-purple-900 flex items-center justify-center">
             <div className="text-center space-y-4">
-              <h1 className="text-3xl font-light text-white">Results</h1>
-              <p className="text-gray-400">Movie recommendations will appear here</p>
+              <h1 className="text-3xl font-light text-white">Quiz Results</h1>
+              <p className="text-gray-400">
+                {isAdmin ? 'Results - Admin View' : 'Results - Participant View'}
+              </p>
+
+              {/* 🆕 ENHANCED: Show detailed completion status for COUPLE & GROUP */}
+              {clientSession && session && (() => {
+                const hasCompleted = userHasCompletedQuiz(session, clientSession.userId)
+                const stats = getQuizCompletionStats(session)
+                const viewingMode = typeof session.viewingMode === 'string'
+                  ? session.viewingMode
+                  : session.viewingMode?.displayName || session.viewingMode?.id
+
+                return (
+                  <div className="space-y-3">
+                    {hasCompleted ? (
+                      <p className="text-green-400">✅ Your quiz has been completed!</p>
+                    ) : (
+                      <p className="text-orange-400">🤔 Quiz completion status unclear...</p>
+                    )}
+
+                    {/* Show completion stats for multi-user modes */}
+                    {viewingMode !== 'solo' && (
+                      <div className="space-y-2">
+                        <p className="text-blue-400">
+                          📊 Progress: {stats.completed}/{stats.total} participants completed
+                        </p>
+
+                        {stats.completedUsers.length > 0 && (
+                          <p className="text-green-300 text-sm">
+                            ✅ Completed: {stats.completedUsers.join(', ')}
+                          </p>
+                        )}
+
+                        {stats.pendingUsers.length > 0 && (
+                          <p className="text-yellow-300 text-sm">
+                            ⏳ Still working: {stats.pendingUsers.join(', ')}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {session.status !== 'results' && stats.pendingUsers.length > 0 && (
+                      <p className="text-blue-400">⏳ Waiting for other participants to finish...</p>
+                    )}
+
+                    {session.status === 'results' && (
+                      <p className="text-purple-400">🏆 All participants completed! Final results ready.</p>
+                    )}
+
+                    {viewingMode && (
+                      <p className="text-gray-500 text-sm">Mode: {viewingMode}</p>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
           </div>
         </>
