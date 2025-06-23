@@ -119,9 +119,15 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
   }
 }
 
-// Funkcja do wyciągania nazwy użytkownika z URL
+// POPRAWIONA funkcja do wyciągania nazwy użytkownika z URL - obsługuje parametry query string
 function extractUsername(url: string): string | null {
   try {
+    // Usuń wszystko po symbolu ? (parametry query string) oraz fragment (#)
+    const cleanUrl = url.split('?')[0].split('#')[0];
+
+    console.log('🔍 Original URL:', url);
+    console.log('🧹 Cleaned URL:', cleanUrl);
+
     const patterns: RegExp[] = [
       /instagram\.com\/([a-zA-Z0-9._]+)\/?$/,
       /instagram\.com\/([a-zA-Z0-9._]+)\/$/,
@@ -129,12 +135,15 @@ function extractUsername(url: string): string | null {
     ];
 
     for (const pattern of patterns) {
-      const match = url.match(pattern);
+      const match = cleanUrl.match(pattern);
       if (match && match[1]) {
-        return match[1].replace(/\/$/, '');
+        const extractedUsername = match[1].replace(/\/$/, '');
+        console.log('✅ Username extracted:', extractedUsername);
+        return extractedUsername;
       }
     }
 
+    console.log('❌ No username pattern matched');
     return null;
   } catch (error) {
     console.error('❌ Error extracting username:', error);

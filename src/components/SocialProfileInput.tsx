@@ -22,10 +22,43 @@ export default function SocialProfileInput({ onContinue, showContent = true }: S
   // [ZMIANA] Ref do śledzenia, czy API zakończyło pracę. To pozwoli przerwać powolną animację.
   const apiCallCompleted = useRef(false);
 
+  // POPRAWIONA funkcja detectPlatform - obsługuje parametry query string i filtruje nieprawidłowe linki
   const detectPlatform = (url: string): 'instagram' | 'linkedin' | null => {
-    if (url.includes('instagram.com') && url.includes('/')) return 'instagram'
-    if (url.includes('linkedin.com/in/') && url.includes('/')) return 'linkedin'
-    return null
+    // Usuń parametry query string dla czystszego dopasowania
+    const cleanUrl = url.split('?')[0].split('#')[0].toLowerCase();
+
+    console.log('🔍 Detecting platform for URL:', url);
+    console.log('🧹 Cleaned URL for detection:', cleanUrl);
+
+    // Instagram - sprawdź czy to link do profilu (nie do posta, reel-a itp.)
+    if (cleanUrl.includes('instagram.com/')) {
+      // Wykluczamy linki do postów, reels, stories, explore
+      const excludedPaths = ['/p/', '/reel/', '/reels/', '/stories/', '/explore/', '/tv/', '/igtv/'];
+      const hasExcludedPath = excludedPaths.some(path => cleanUrl.includes(path));
+
+      if (!hasExcludedPath) {
+        // Sprawdź czy ma format profilu: instagram.com/username
+        const profileMatch = cleanUrl.match(/instagram\.com\/([a-zA-Z0-9._]+)\/?$/);
+        if (profileMatch) {
+          console.log('✅ Detected Instagram profile for username:', profileMatch[1]);
+          return 'instagram';
+        }
+      } else {
+        console.log('❌ Instagram URL excluded - contains post/reel/story path');
+      }
+    }
+
+    // LinkedIn - sprawdź czy to link do profilu
+    if (cleanUrl.includes('linkedin.com/in/')) {
+      const profileMatch = cleanUrl.match(/linkedin\.com\/in\/([a-zA-Z0-9._-]+)\/?$/);
+      if (profileMatch) {
+        console.log('✅ Detected LinkedIn profile for username:', profileMatch[1]);
+        return 'linkedin';
+      }
+    }
+
+    console.log('❌ No valid platform detected');
+    return null;
   }
 
   const formatNumber = (num: number | null): string => {
@@ -63,6 +96,8 @@ export default function SocialProfileInput({ onContinue, showContent = true }: S
 
   const checkProfile = async (url: string, platform: 'instagram' | 'linkedin') => {
     try {
+      console.log(`🔍 Checking ${platform} profile:`, url);
+
       const endpoint = platform === 'instagram' ? '/api/instagram-profile' : '/api/linkedin-profile'
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -70,10 +105,17 @@ export default function SocialProfileInput({ onContinue, showContent = true }: S
         body: JSON.stringify({ url }),
       })
       const data = await response.json()
+
+      console.log(`📦 ${platform} API response:`, { exist: data.exist, username: data.username });
+
       if (response.ok && data.exist) {
         return {
-          exist: true, profilepic_url: data.profilepic_url, username: data.username,
-          platform, followers_count: data.followers_count, full_name: data.full_name,
+          exist: true,
+          profilepic_url: data.profilepic_url,
+          username: data.username,
+          platform,
+          followers_count: data.followers_count,
+          full_name: data.full_name,
           followers: data.followers
         }
       }
@@ -89,9 +131,15 @@ export default function SocialProfileInput({ onContinue, showContent = true }: S
     const platform = detectPlatform(url)
 
     if (!platform) {
-      setSocialProfile(null); setShowProfile(false); setLoadingProgress(0);
+      console.log('❌ No platform detected, resetting state');
+      setSocialProfile(null);
+      setShowProfile(false);
+      setLoadingProgress(0);
+      setPlatformType(null);
       return
     }
+
+    console.log(`✅ Platform detected: ${platform}, starting profile check`);
 
     apiCallCompleted.current = false; // Reset flagi
     setPlatformType(platform)
@@ -106,6 +154,7 @@ export default function SocialProfileInput({ onContinue, showContent = true }: S
       apiCallCompleted.current = true;
 
       if (profileData.exist) {
+        console.log('✅ Profile found, showing results');
         // Natychmiast ustaw 100%
         setLoadingProgress(100);
 
@@ -117,13 +166,16 @@ export default function SocialProfileInput({ onContinue, showContent = true }: S
         }, 200);
 
       } else {
+        console.log('❌ Profile not found, resetting state');
         // Jeśli profil nie istnieje, resetuj od razu
-        setSocialProfile(null); setShowProfile(false);
+        setSocialProfile(null);
+        setShowProfile(false);
         setCheckingProfile(false);
       }
     } catch (error) {
       console.error('Profile check error:', error)
-      setSocialProfile(null); setShowProfile(false);
+      setSocialProfile(null);
+      setShowProfile(false);
       setCheckingProfile(false);
     }
   }
@@ -133,8 +185,11 @@ export default function SocialProfileInput({ onContinue, showContent = true }: S
       if (socialLink) {
         handleProfileCheck(socialLink)
       } else {
-        setSocialProfile(null); setShowProfile(false);
-        setLoadingProgress(0); apiCallCompleted.current = false;
+        setSocialProfile(null);
+        setShowProfile(false);
+        setLoadingProgress(0);
+        apiCallCompleted.current = false;
+        setPlatformType(null);
       }
     }, 1000)
     return () => clearTimeout(timer)
@@ -147,8 +202,10 @@ export default function SocialProfileInput({ onContinue, showContent = true }: S
   }
 
   const handleConfirmNo = () => {
-    setSocialLink(''); setSocialProfile(null);
+    setSocialLink('');
+    setSocialProfile(null);
     setShowProfile(false);
+    setPlatformType(null);
   }
 
   const viewVariants = {
@@ -194,7 +251,13 @@ export default function SocialProfileInput({ onContinue, showContent = true }: S
                 </div>
                 <div className={`space-y-6 transition-opacity duration-700 delay-200 ${showContent ? 'opacity-100' : 'opacity-0'}`}>
                   <div className="relative">
-                    <input type="url" value={socialLink} onChange={(e) => setSocialLink(e.target.value)} placeholder="Instagram or LinkedIn profile URL" className={`w-full px-6 py-4 bg-gradient-to-br from-gray-900/80 to-gray-800/50 border border-gray-800 rounded-xl text-white placeholder-gray-500 backdrop-blur-sm focus:outline-none focus:border-blue-600/50 focus:from-gray-900 focus:to-gray-800/70 transition-all duration-300 ${checkingProfile ? 'text-gray-400' : 'text-white'}`} />
+                    <input
+                      type="url"
+                      value={socialLink}
+                      onChange={(e) => setSocialLink(e.target.value)}
+                      placeholder="Instagram or LinkedIn profile URL"
+                      className={`w-full px-6 py-4 bg-gradient-to-br from-gray-900/80 to-gray-800/50 border border-gray-800 rounded-xl text-white placeholder-gray-500 backdrop-blur-sm focus:outline-none focus:border-blue-600/50 focus:from-gray-900 focus:to-gray-800/70 transition-all duration-300 ${checkingProfile ? 'text-gray-400' : 'text-white'}`}
+                    />
                     {checkingProfile && (
                       <>
                         <div className={`absolute inset-0 ${platformType === 'instagram' ? 'border-pink-300' : 'border-blue-300'} border rounded-xl transition-all duration-300 ease-out pointer-events-none`} style={{ clipPath: `inset(0 ${100 - loadingProgress}% 0 0)`, background: platformType === 'instagram' ? 'rgba(236, 72, 153, 0.1)' : 'rgba(59, 130, 246, 0.1)' }}></div>
