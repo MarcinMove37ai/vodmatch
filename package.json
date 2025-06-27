@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@pinecone-database/pinecone": "^6.1.1",
     "@prisma/client": "^6.10.1",
     "@types/pg": "^8.15.4",
     "framer-motion": "^12.18.1",
