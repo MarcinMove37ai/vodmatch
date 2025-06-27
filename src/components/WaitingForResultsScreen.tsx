@@ -1,4 +1,4 @@
-// src/components/WaitingForResultsScreen.tsx - WERSJA Z POPRAWKĄ TYPOWANIA DLA BUILDA
+// src/components/WaitingForResultsScreen.tsx - WERSJA Z ELIMINACJĄ FLASHA W TRYBIE SOLO
 'use client'
 
 import { useMemo, useState, useEffect } from 'react'
@@ -40,9 +40,13 @@ export default function WaitingForResultsScreen({
   onRefreshSession
 }: WaitingForResultsScreenProps) {
 
-  const [resultsPhase, setResultsPhase] = useState<ResultsPhase>('ranking_only');
   const isConnected = realTimeConnected;
   const isSoloMode = session?.viewingMode === 'solo';
+
+  // ZMIANA: Stan początkowy jest ustawiany warunkowo, aby uniknąć "flasha" rankingu w trybie solo.
+  const [resultsPhase, setResultsPhase] = useState<ResultsPhase>(() =>
+    isSoloMode ? 'analyzing' : 'ranking_only'
+  );
 
   const rankedParticipants: RankedParticipant[] = useMemo(() => {
     if (!session?.profiles) return [];
@@ -65,7 +69,6 @@ export default function WaitingForResultsScreen({
         platform: profile.platform,
         pic_url: profile.pic_url,
         totalTime: profile.quiz_result?.totalTime || null,
-        // ZMIANA: Dodano jawny typ dla parametru 'c', aby naprawić błąd budowania
         rank: hasCompleted ? completed.findIndex((c: { userId: string }) => c.userId === profile.userId) + 1 : 0,
         individual_analysis: profile.individual_analysis || null
       };
@@ -115,7 +118,7 @@ export default function WaitingForResultsScreen({
           transition={{ duration: 0.6 }}
         >
           <AnimatePresence mode="wait">
-            {resultsPhase === 'showing_insights' || resultsPhase === 'awaiting_winner_action' ? (
+            {(resultsPhase === 'showing_insights' || resultsPhase === 'awaiting_winner_action') ? (
               <motion.div
                 key="insights-header"
                 className="flex items-center justify-center space-x-4"
@@ -187,6 +190,7 @@ export default function WaitingForResultsScreen({
                   transition={{ duration: 0.5 }}
                   className="space-y-6"
                 >
+                  {/* Poniższy div z rankingiem nie zostanie wyrenderowany w trybie solo dzięki logice powyżej */}
                   <div className="p-6 rounded-xl bg-gray-900/40 border border-gray-700/40 backdrop-blur-sm space-y-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-3">

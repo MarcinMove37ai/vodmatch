@@ -1,4 +1,4 @@
-// src/app/page.tsx - FINAL ELEGANT NAVIGATION FIX
+// src/app/page.tsx - WERSJA Z POPRAWIONĄ LOGIKĄ NAWIGACJI
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
@@ -189,22 +189,30 @@ export default function VodMatchApp() {
   const handleLogout = () => { if (clientSession) { clearCurrentStep(clientSession.sessionId, clientSession.userId); } setIsAuthenticated(false); setCurrentStep('login'); setShowContent(false); clearSession(); }
   const handlePlatformContinue = async (platforms: StreamingPlatform[]) => { if (await updatePlatforms(platforms)) updateCurrentStep('mode'); }
   const handleModeContinue = async (mode: ViewingMode) => { if (await updateMode(mode)) updateCurrentStep('profile'); }
-  const handleAdminProfileContinue = async (profile: SocialProfile) => { if (await updateAdminProfile(profile)) { const modeId = typeof session?.viewingMode === 'string' ? session.viewingMode : session?.viewingMode?.id; updateCurrentStep(modeId === 'solo' ? 'quiz' : 'qr_code'); } }
+
+  // ‼️ KLUCZOWA ZMIANA: Ta funkcja jest teraz odporna na błędy "race condition"
+  const handleAdminProfileContinue = async (profile: SocialProfile) => {
+    const updatedSession = await updateAdminProfile(profile);
+    if (updatedSession) {
+      // Używamy świeżych danych 'updatedSession' bezpośrednio z odpowiedzi API,
+      // a nie obiektu 'session' ze stanu, który może być nieaktualny.
+      const modeId = typeof updatedSession.viewingMode === 'string'
+        ? updatedSession.viewingMode
+        : updatedSession?.viewingMode?.id;
+
+      updateCurrentStep(modeId === 'solo' ? 'quiz' : 'qr_code');
+    }
+  }
+
   const handleParticipantProfileContinue = async (profile: SocialProfile) => { if (await updateParticipantProfile(profile)) updateCurrentStep('waiting_room'); }
   const handleCloseRegistration = async () => { setIsProcessing(true); if (await closeRegistration()) { await refreshSession(); updateCurrentStep('waiting_room'); } setIsProcessing(false); }
   const handleStartQuiz = async () => { setIsProcessing(true); if (await startQuiz()) { await refreshSession(); updateCurrentStep('quiz'); } else { alert('Failed to start quiz.'); } setIsProcessing(false); }
   const handleRefreshSession = async (): Promise<void> => { await refreshSession(); }
 
-  // ‼️ KLUCZOWA ZMIANA: Zmieniona kolejność operacji dla płynnego przejścia
   const handleQuizComplete = async (answers: QuizAnswer[]): Promise<void> => {
     if (!clientSession) return;
-
     console.log(`📝 Quiz completed by ${clientSession.userId}. Navigating immediately.`);
-
-    // KROK 1: Natychmiastowa nawigacja do ekranu wyników/oczekiwania
     updateCurrentStep('waiting_for_results');
-
-    // KROK 2: Przetwarzanie i wysyłanie wyników w tle (nie blokujemy UI)
     (async () => {
       try {
         console.log('📤 Submitting quiz results in background...');
