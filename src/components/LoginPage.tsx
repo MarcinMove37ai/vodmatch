@@ -171,7 +171,7 @@ export default function LoginPage({ onLogin, error }: LoginPageProps) {
 
             <div className="space-y-3">
               <h1 className="text-4xl font-light bg-gradient-to-r from-white via-gray-100 to-gray-300 bg-clip-text text-transparent tracking-tight">
-                VodMatch
+                VODmatch
               </h1>
               <div className="w-12 h-px bg-gradient-to-r from-blue-600/60 via-purple-600/60 to-transparent mx-auto"></div>
               <p className="text-gray-400 font-light">
