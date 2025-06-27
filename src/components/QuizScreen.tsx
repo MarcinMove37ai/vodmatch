@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Check, ArrowRight, CheckCircle, Users, Wifi, WifiOff } from 'lucide-react'
+import { Check, ArrowRight, CheckCircle } from 'lucide-react'
 
 // --- TYPY ---
 interface QuizQuestion {
@@ -171,41 +171,13 @@ export default function QuizScreen({
   const [isCompleted, setIsCompleted] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Real-time status
+  // Real-time status (dodane z drugiej wersji)
   const isConnected = realTimeConnected
   const connectionState = realTimeConnectionState
 
   const currentQuestion = QUIZ_QUESTIONS[currentQuestionIndex]
   const isLastQuestion = currentQuestionIndex === QUIZ_QUESTIONS.length - 1
   const progress = (answers.length / QUIZ_QUESTIONS.length) * 100
-
-  // 🆕 ADDED: Helper function to get completion stats for waiting screen
-  const getCompletionStats = () => {
-    if (!session?.profiles) return { completed: 0, total: 0 }
-
-    const profiles = session.profiles
-    const completed = profiles.filter((p: any) => {
-      const quizResult = p.quiz_result
-      return !!(quizResult &&
-               typeof quizResult === 'object' &&
-               quizResult.completedAt &&
-               Array.isArray(quizResult.answers) &&
-               quizResult.answers.length > 0)
-    }).length
-
-    return { completed, total: profiles.length }
-  }
-
-  // 🆕 ADDED: Manual refresh fallback
-  const handleManualRefresh = async () => {
-    if (isConnected && realTimeReconnect) {
-      console.log('🔄 QuizScreen completion: Real-time working, attempting reconnect')
-      realTimeReconnect()
-    } else {
-      console.log('🔄 QuizScreen completion: Manual refresh requested')
-      await onRefreshSession()
-    }
-  }
 
   useEffect(() => {
     setQuestionStartTime(new Date())
@@ -247,10 +219,8 @@ export default function QuizScreen({
     }
   }, [selectedOption, currentQuestion.id, questionStartTime, answers, isLastQuestion, onQuizComplete]);
 
-  // --- EKRAN ZAKOŃCZENIA Z REAL-TIME INDICATORS ---
+  // --- EKRAN ZAKOŃCZENIA ---
   if (isCompleted) {
-    const stats = getCompletionStats()
-
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center p-6 relative overflow-hidden">
          <div className="absolute -top-1/4 -left-1/4 w-1/2 h-1/2 bg-gradient-to-br from-blue-600/20 to-purple-600/10 rounded-full animate-pulse blur-3xl"></div>
@@ -277,81 +247,12 @@ export default function QuizScreen({
               {isSubmitting ? 'Submitting your results...' : 'Waiting for others to finish. The results will appear soon!'}
             </p>
           </div>
-
-          {/* 🆕 ADDED: Real-time waiting section with progress */}
-          {!isSubmitting && (
-            <div className="p-6 rounded-xl bg-gray-900/40 border border-gray-700/40 backdrop-blur-sm space-y-4">
-              {/* 🆕 ADDED: Real-time status header */}
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center space-x-3">
-                  <Users className="w-6 h-6 text-blue-400" />
-                  <h2 className="text-xl text-white">Waiting for others...</h2>
-                </div>
-
-                {/* 🆕 CRITICAL: Real-time indicator - fixes WiFi icon issue! */}
-                {!isConnected && (
-                  <button
-                    onClick={handleManualRefresh}
-                    className="p-2 hover:bg-gray-800/50 rounded-lg transition-colors"
-                    title="Manual refresh"
-                  >
-                    <WifiOff className="w-4 h-4 text-yellow-400" />
-                  </button>
-                )}
-
-                {isConnected && (
-                  <div className="flex items-center space-x-1 text-green-400">
-                    <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                    <span className="text-xs">Live</span>
-                  </div>
-                )}
-              </div>
-
-              <p className="text-3xl font-bold text-white">
-                {stats.completed} / {stats.total}
-              </p>
-              <p className="text-sm text-gray-500">participants finished</p>
-              <div className="w-full bg-gray-700 rounded-full h-2.5 mt-4">
-                <motion.div
-                  className="bg-gradient-to-r from-blue-500 to-cyan-500 h-2.5 rounded-full"
-                  initial={{ width: 0 }}
-                  animate={{ width: `${(stats.completed / (stats.total || 1)) * 100}%` }}
-                  transition={{ duration: 0.5 }}
-                />
-              </div>
-
-              {/* 🆕 ADDED: Last update timestamp */}
-              {realTimeLastUpdate && isConnected && (
-                <p className="text-gray-600 text-xs">
-                  Last update: {realTimeLastUpdate.toLocaleTimeString()}
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* Submitting indicator */}
           {isSubmitting && (
             <div className="flex items-center justify-center space-x-2">
               <div className="w-4 h-4 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin"></div>
               <span className="text-emerald-400 text-sm">Processing...</span>
             </div>
           )}
-
-          {/* 🆕 ADDED: Session info footer */}
-          <div className="text-center">
-            <div className="inline-flex items-center space-x-4 px-4 py-2 rounded-full bg-gray-900/40 border border-gray-700/40 backdrop-blur-sm">
-              <div className="flex items-center space-x-2">
-                <div className={`w-2 h-2 rounded-full animate-pulse ${
-                  isConnected ? 'bg-green-400' : 'bg-yellow-400'
-                }`}></div>
-                <span className="text-gray-400 text-xs font-medium">Session {sessionId}</span>
-              </div>
-              <div className="w-px h-4 bg-gray-600/50"></div>
-              <span className="text-gray-500 text-xs font-light">
-                Quiz completed
-              </span>
-            </div>
-          </div>
         </motion.div>
       </div>
     )
