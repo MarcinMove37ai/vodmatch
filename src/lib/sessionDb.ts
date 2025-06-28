@@ -1,4 +1,4 @@
-// lib/sessionDb.ts - WERSJA Z INTEGRACJĄ LLM CHARACTERIZATION
+// lib/sessionDb.ts - WERSJA Z INTEGRACJĄ LLM CHARACTERIZATION I KONTROLĄ RELEASE INSIGHTS
 import { prisma } from './prisma'
 import { Prisma } from '@prisma/client'
 
@@ -55,10 +55,10 @@ export class SessionDatabase {
     try {
       console.log(`🤖 [LLM Characterization] Starting for profileId: ${profileId}`)
 
-      // Pobierz userId z profileId
+      // Pobierz userId i sessionId z profileId
       const profile = await prisma.sessionProfile.findUnique({
         where: { id: profileId },
-        select: { userId: true, username: true }
+        select: { userId: true, username: true, sessionId: true }
       })
 
       if (!profile) {
@@ -86,6 +86,14 @@ export class SessionDatabase {
 
       if (result.success) {
         console.log(`✅ [LLM Characterization] Success for ${profile.username}: "${result.characterization}" (${result.length} chars)`)
+
+        // 🆕 BROADCAST: Powiadom klientów o zaktualizowaniu charakteryzacji
+        try {
+          await broadcastSessionUpdate(profile.sessionId, 'llm_characterization_completed')
+          console.log(`📤 [LLM Characterization] Broadcast sent for session ${profile.sessionId}`)
+        } catch (broadcastError) {
+          console.log(`⚠️ [LLM Characterization] Broadcast failed:`, broadcastError)
+        }
       } else {
         console.error(`❌ [LLM Characterization] API error for ${profile.username}:`, result.error)
       }
@@ -357,9 +365,7 @@ export class SessionDatabase {
 
       console.log(`✅ [Semantic Analysis] Successfully saved group and ${individual_insights.length} individual analyses for session ${sessionId}.`);
 
-      // ⬇️⬇️⬇️ JEDYNA, KLUCZOWA ZMIANA ⬇️⬇️⬇️
-      // Po pomyślnym zapisaniu analizy, musimy jawnie poinformować
-      // wszystkich klientów, że dostępna jest nowa, kompletna wersja sesji.
+      // Po pomyślnym zapisaniu analizy, informujemy klientów o dostępności analizy
       console.log(`📢 [Semantic Analysis] Triggering session broadcast after analysis completion for ${sessionId}`);
       await broadcastSessionUpdate(sessionId, 'analysis_completed');
 
@@ -377,14 +383,15 @@ export class SessionDatabase {
       console.log(`📊 Quiz completion status: ${profilesWithQuizResults.length}/${profiles.length} completed`);
 
       if (allCompleted) {
-        console.log(`🏆 All participants completed quiz! Session ${sessionId} moved to results`);
+        console.log(`🏆 All participants completed quiz! Session ${sessionId} moved to insights_ready`);
+        // 🔄 ZMIANA: insights_ready zamiast results - czeka na release od admina
         await prisma.session.update({
           where: { sessionId: sessionId.toUpperCase() },
-          data: { status: 'results', currentStep: 'results' }
+          data: { status: 'insights_ready', currentStep: 'insights_ready' }
         });
 
         try {
-          broadcastSessionStatusChanged(sessionId, 'results', 'quiz_active');
+          broadcastSessionStatusChanged(sessionId, 'insights_ready', 'quiz_active');
           await broadcastSessionUpdate(sessionId, 'quiz_completed');
         } catch (sseError) {
           console.log(`⚠️ SSE broadcast on completion failed:`, sseError);
@@ -408,6 +415,31 @@ export class SessionDatabase {
       return false;
     } catch (error) {
       console.error(`❌ Error checking quiz completion for session ${sessionId}:`, error);
+      return false;
+    }
+  }
+
+  // 🆕 NOWA METODA: Release insights dla admina
+  async releaseInsights(sessionId: string): Promise<boolean> {
+    try {
+      console.log(`🚀 [Release Insights] Admin releasing insights for session ${sessionId}`);
+
+      await prisma.session.update({
+        where: { sessionId: sessionId.toUpperCase() },
+        data: { status: 'insights_released', currentStep: 'insights_released' }
+      });
+
+      try {
+        broadcastSessionStatusChanged(sessionId, 'insights_released', 'insights_ready');
+        await broadcastSessionUpdate(sessionId, 'insights_released');
+      } catch (sseError) {
+        console.log(`⚠️ SSE broadcast on insights release failed:`, sseError);
+      }
+
+      console.log(`✅ [Release Insights] Insights released for session ${sessionId}`);
+      return true;
+    } catch (error) {
+      console.error(`❌ [Release Insights] Failed to release insights for session ${sessionId}:`, error);
       return false;
     }
   }

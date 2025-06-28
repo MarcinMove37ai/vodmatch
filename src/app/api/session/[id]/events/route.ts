@@ -243,6 +243,60 @@ export async function GET(
   }
 }
 
+// 🆕 NOWY: PATCH endpoint dla akcji session
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+): Promise<NextResponse> {
+  try {
+    const { id } = await params
+    const sessionId = id.toUpperCase()
+    const body = await request.json()
+    const { action, userId } = body
+
+    console.log(`🔄 PATCH: Action '${action}' for session ${sessionId} by user ${userId}`)
+
+    // Verify session exists
+    const session = await sessionDb.getSession(sessionId)
+    if (!session) {
+      console.log(`❌ PATCH: Session not found: ${sessionId}`)
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 })
+    }
+
+    // Handle release_insights action
+    if (action === 'release_insights') {
+      console.log(`🚀 PATCH: Releasing insights for session ${sessionId}`)
+
+      const success = await sessionDb.releaseInsights(sessionId)
+      if (!success) {
+        console.log(`❌ PATCH: Failed to release insights for session ${sessionId}`)
+        return NextResponse.json({ error: 'Failed to release insights' }, { status: 500 })
+      }
+
+      // Get updated session data
+      const updatedSession = await sessionDb.getSession(sessionId)
+      console.log(`✅ PATCH: Insights released successfully for session ${sessionId}`)
+
+      return NextResponse.json({
+        success: true,
+        session: updatedSession,
+        message: 'Insights released successfully'
+      })
+    }
+
+    // Handle other actions here in the future
+    console.log(`⚠️ PATCH: Unknown action '${action}' for session ${sessionId}`)
+    return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 })
+
+  } catch (error) {
+    console.error('❌ PATCH: CRITICAL error in session endpoint:', error)
+    return NextResponse.json({
+      error: 'Failed to process session action',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 })
+  }
+}
+
 // 🎯 HELPER: Format SSE event according to specification
 function formatSSEEvent(event: SSEEvent): string {
   const data = JSON.stringify(event.data)
@@ -510,8 +564,8 @@ export async function OPTIONS(): Promise<NextResponse> {
     status: 200,
     headers: {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Cache-Control',
+      'Access-Control-Allow-Methods': 'GET, PATCH, OPTIONS',
+      'Access-Control-Allow-Headers': 'Cache-Control, Content-Type',
       'Access-Control-Max-Age': '86400'
     }
   })

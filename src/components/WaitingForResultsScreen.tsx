@@ -1,12 +1,12 @@
-// src/components/WaitingForResultsScreen.tsx - WERSJA Z ELIMINACJĄ FLASHA W TRYBIE SOLO
+// src/components/WaitingForResultsScreen.tsx - WERSJA Z KONTROLĄ RELEASE INSIGHTS
 'use client'
 
 import { useMemo, useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Clock, Users, CheckCircle, WifiOff, BrainCircuit, Award, Sparkles, Crown } from 'lucide-react'
+import { Clock, Users, CheckCircle, WifiOff, BrainCircuit, Award, Sparkles, Crown, Eye } from 'lucide-react'
 import ParticipantInsightCard from './ParticipantInsightCard'
 
-type ResultsPhase = 'ranking_only' | 'analyzing' | 'showing_insights' | 'awaiting_winner_action'
+type ResultsPhase = 'ranking_only' | 'analyzing' | 'insights_ready' | 'showing_insights' | 'awaiting_winner_action'
 
 interface WaitingForResultsScreenProps {
   sessionId: string
@@ -17,6 +17,7 @@ interface WaitingForResultsScreenProps {
   realTimeLastUpdate?: Date | null
   realTimeReconnect?: () => void
   onRefreshSession: () => Promise<void>
+  releaseInsights?: () => Promise<boolean> // 🆕 NOWY PROP
 }
 
 interface RankedParticipant {
@@ -38,7 +39,8 @@ export default function WaitingForResultsScreen({
   userId,
   isAdmin,
   realTimeConnected = false,
-  onRefreshSession
+  onRefreshSession,
+  releaseInsights // 🆕 NOWY PROP
 }: WaitingForResultsScreenProps) {
 
   const isConnected = realTimeConnected;
@@ -48,6 +50,8 @@ export default function WaitingForResultsScreen({
   const [resultsPhase, setResultsPhase] = useState<ResultsPhase>(() =>
     isSoloMode ? 'analyzing' : 'ranking_only'
   );
+
+  const [isReleasingInsights, setIsReleasingInsights] = useState(false) // 🆕 LOADING STATE
 
   const rankedParticipants: RankedParticipant[] = useMemo(() => {
     if (!session?.profiles) return [];
@@ -77,14 +81,28 @@ export default function WaitingForResultsScreen({
     });
   }, [session?.profiles]);
 
+  // 🔄 ZMIENIONY useEffect - obsługa nowych statusów
   useEffect(() => {
     const currentStatus = session?.status;
-    if (currentStatus === 'results') {
+
+    if (currentStatus === 'insights_ready') {
+      // Analiza zakończona, ale admin jeszcze nie zwolnił insights
       const isAnalysisComplete = !!session?.group_analysis;
       if (isAnalysisComplete) {
-          setResultsPhase('showing_insights');
+        setResultsPhase('insights_ready');
       } else {
-          setResultsPhase('analyzing');
+        setResultsPhase('analyzing');
+      }
+    } else if (currentStatus === 'insights_released') {
+      // Admin zwolnił insights - można pokazać
+      setResultsPhase('showing_insights');
+    } else if (currentStatus === 'results') {
+      // Stary status - dla kompatybilności wstecznej
+      const isAnalysisComplete = !!session?.group_analysis;
+      if (isAnalysisComplete) {
+        setResultsPhase('showing_insights');
+      } else {
+        setResultsPhase('analyzing');
       }
     } else if (!isSoloMode) {
       setResultsPhase('ranking_only');
@@ -101,13 +119,64 @@ export default function WaitingForResultsScreen({
     }
   }, [resultsPhase]);
 
+  // 🆕 HANDLER dla release insights
+  const handleReleaseInsights = async () => {
+    if (!releaseInsights) return;
+
+    setIsReleasingInsights(true);
+    try {
+      const success = await releaseInsights();
+      if (success) {
+        console.log('✅ Insights released successfully');
+        // Status zmieni się automatycznie przez real-time update
+      } else {
+        console.error('❌ Failed to release insights');
+      }
+    } catch (error) {
+      console.error('❌ Error releasing insights:', error);
+    } finally {
+      setIsReleasingInsights(false);
+    }
+  };
+
+  // 🆕 SPRAWDZENIE: Czy wszystkie social analysis są zakończone
+  const allSocialAnalysisCompleted = useMemo(() => {
+    // Sprawdź czy wszyscy użytkownicy którzy skończyli quiz mają zakończoną analizę social media
+    const result = rankedParticipants
+      .filter(p => p.hasCompleted) // tylko ci co skończyli quiz
+      .every(p => {
+        // Sprawdź social_analysis_status w session.profiles
+        const userProfile = session?.profiles?.find((profile: any) => profile.userId === p.userId);
+        const socialAnalysisStatus = userProfile?.social_analysis_status;
+
+        // 🔍 DEBUG: Log statusu dla każdego użytkownika
+        console.log(`🔍 Social Analysis Status for ${p.username}:`, {
+          userId: p.userId,
+          socialAnalysisStatus,
+          userProfile: userProfile ? 'found' : 'not found'
+        });
+
+        // Jeśli nie ma statusu (null) → nie ma social media → uznajemy za gotowego
+        // Jeśli ma status "completed" lub "failed" → gotowy
+        // Jeśli ma status "pending" lub "in_progress" → czekamy
+        const isReady = !socialAnalysisStatus ||
+                       socialAnalysisStatus === 'completed' ||
+                       socialAnalysisStatus === 'failed';
+
+        console.log(`🔍 User ${p.username} ready: ${isReady} (status: ${socialAnalysisStatus})`);
+        return isReady;
+      });
+
+    console.log(`🔍 All Social Analysis Completed: ${result}`);
+    return result;
+  }, [rankedParticipants, session?.profiles]);
+
   const currentUserAnalysis = useMemo(() => {
     if (resultsPhase === 'showing_insights' || resultsPhase === 'awaiting_winner_action') {
       return rankedParticipants.find(p => p.userId === userId);
     }
     return null;
   }, [resultsPhase, rankedParticipants, userId]);
-
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-purple-900 relative overflow-hidden">
@@ -158,14 +227,6 @@ export default function WaitingForResultsScreen({
                   <h1 className="text-2xl font-light text-white">
                     Quiz Completed!
                   </h1>
-                  {resultsPhase === 'ranking_only' &&
-                    <motion.p
-                      className="text-gray-400 font-light text-sm"
-                      exit={{ opacity: 0 }}
-                    >
-                      Waiting for others to finish...
-                    </motion.p>
-                  }
                 </div>
               </motion.div>
             )}
@@ -200,46 +261,145 @@ export default function WaitingForResultsScreen({
                   transition={{ duration: 0.3 }}
                   className="space-y-6"
                 >
-                  {/* Poniższy div z rankingiem nie zostanie wyrenderowany w trybie solo dzięki logice powyżej */}
-                  <div className="p-6 rounded-xl bg-gray-900/40 border border-gray-700/40 backdrop-blur-sm space-y-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <Users className="w-6 h-6 text-blue-400" />
-                        <h2 className="text-xl text-white">Ranking</h2>
+                  {/* 🆕 WAITING FOR OTHERS - panel oczekiwania gdy user skończył quiz */}
+                  {resultsPhase === 'ranking_only' && rankedParticipants.find(p => p.userId === userId)?.hasCompleted && (
+                    <div className="p-6 rounded-xl bg-gray-900/40 border border-amber-700/30 backdrop-blur-sm space-y-4 text-center">
+                      <div className="flex items-center justify-center space-x-3">
+                        <Clock className="w-6 h-6 text-amber-400" />
+                        <h2 className="text-xl text-white">Waiting for Others</h2>
                       </div>
-                      {isConnected && (
-                        <div className="flex items-center space-x-1 text-green-400">
-                          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                          <span className="text-xs">Live</span>
+                      <p className="text-sm text-gray-400">Great job! Please wait while other participants finish their quiz...</p>
+                      <div className="flex items-center justify-center space-x-3 text-amber-400/80 pt-2">
+                        <div className="w-5 h-5 border-2 border-amber-400/50 border-t-amber-400 rounded-full animate-spin"></div>
+                        <span>Waiting...</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Ranking - pokazywany tylko gdy nie solo mode i nie czeka na innych */}
+                  {!isSoloMode && !(resultsPhase === 'ranking_only' && rankedParticipants.find(p => p.userId === userId)?.hasCompleted) && (
+                    <div className="p-6 rounded-xl bg-gray-900/40 border border-gray-700/40 backdrop-blur-sm space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <Users className="w-6 h-6 text-blue-400" />
+                          <h2 className="text-xl text-white">Ranking</h2>
                         </div>
+                        {isConnected && (
+                          <div className="flex items-center space-x-1 text-green-400">
+                            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                            <span className="text-xs">Live</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="space-y-2 mt-4">
+                        {rankedParticipants.map((participant) => (
+                          <div key={participant.userId} className={`p-3 rounded-xl border flex items-center space-x-3 transition-all duration-500 ${ participant.rank === 1 ? 'border-yellow-400/50 bg-green-900/20 shadow-[0_0_25px_rgba(253,224,71,0.3)]' : participant.hasCompleted ? 'border-green-700/30 bg-green-900/20' : 'border-gray-700/50 bg-gray-800/30'}`}>
+                            <div className="text-xl font-bold w-10 text-center flex items-center justify-center">
+                              {participant.hasCompleted ? (participant.rank === 1 ? <Award className="w-6 h-6 text-yellow-400" /> : <span className="text-gray-400">{participant.rank}</span>) : <Clock className="w-5 h-5 mx-auto text-yellow-400"/>}
+                            </div>
+                            <div className="w-10 h-10 rounded-full p-0.5 bg-gradient-to-tr from-purple-500 to-pink-500">
+                              {participant.pic_url ? <img src={participant.pic_url} alt="Participant" className="w-full h-full rounded-full object-cover"/> : <div className="w-full h-full rounded-full bg-gradient-to-br from-gray-700 to-gray-800 flex items-center justify-center"><span className="text-white text-xs font-medium">{participant.username.charAt(0).toUpperCase()}</span></div>}
+                            </div>
+                            <div className="flex-1">
+                              <p className="text-white text-sm font-medium">@{participant.username}</p>
+                              <div className="text-xs text-gray-400 mt-0.5">
+                                {participant.rank === 1 ? <span className="inline-flex items-center"><span>{participant.isAdmin ? 'Host' : 'Participant'} •</span><span className="ml-1.5 px-2 py-0.5 font-bold text-black bg-yellow-400 rounded-full">{participant.userId === userId ? 'You Win!' : 'Winner'}</span></span> : <span>{(participant.isAdmin ? 'Host' : 'Participant') + ` • ${participant.hasCompleted ? 'Completed' : 'In progress...'}`}</span>}
+                              </div>
+                            </div>
+                            {participant.hasCompleted && (
+                              <div className="text-right">
+                                <p className={`text-lg font-mono ${ participant.rank === 1 ? 'text-yellow-300' : 'text-purple-300'}`}>{participant.totalTime}s</p>
+                                <p className="text-xs text-gray-500">Time</p>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Analyzing */}
+                  {resultsPhase === 'analyzing' && (
+                    <div className="p-6 rounded-xl bg-gray-900/40 border border-purple-700/30 backdrop-blur-sm space-y-4 text-center">
+                      <div className="flex items-center justify-center space-x-3">
+                        <BrainCircuit className="w-6 h-6 text-purple-400" />
+                        <h2 className="text-xl text-white">Analyzing Results</h2>
+                      </div>
+                      <p className="text-sm text-gray-400">Please wait, we're getting to know you even better...</p>
+                      <div className="flex items-center justify-center space-x-3 text-purple-400/80 pt-2">
+                        <div className="w-5 h-5 border-2 border-purple-400/50 border-t-purple-400 rounded-full animate-spin"></div>
+                        <span>Processing...</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 🆕 INSIGHTS READY - przycisk dla admina lub spinner dla uczestników */}
+                  {resultsPhase === 'insights_ready' && (
+                    <div className="p-6 rounded-xl bg-gray-900/40 border border-blue-700/30 backdrop-blur-sm space-y-4 text-center">
+                      <div className="flex items-center justify-center space-x-3">
+                        <Eye className="w-6 h-6 text-blue-400" />
+                        <h2 className="text-xl text-white">
+                          {allSocialAnalysisCompleted ? "Insights Ready" : "Finalizing Analysis"}
+                        </h2>
+                      </div>
+
+                      {isAdmin ? (
+                        allSocialAnalysisCompleted ? (
+                          // ✅ Wszystko gotowe - pokaż przycisk
+                          <>
+                            <p className="text-sm text-gray-400">
+                              {isSoloMode
+                                ? "Analysis complete! You can now view your personal insights."
+                                : "Analysis complete! You can now release the insights to participants."
+                              }
+                            </p>
+                            <div className="pt-2">
+                              <button
+                                onClick={handleReleaseInsights}
+                                disabled={isReleasingInsights}
+                                className="bg-gradient-to-r from-blue-500 to-cyan-600 text-white font-bold py-3 px-6 rounded-lg shadow-lg shadow-blue-500/20 hover:scale-105 transition-transform duration-300 flex items-center justify-center mx-auto space-x-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+                              >
+                                {isReleasingInsights ? (
+                                  <>
+                                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                    <span>{isSoloMode ? "Loading..." : "Releasing..."}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Eye className="w-5 h-5" />
+                                    <span>{isSoloMode ? "View Insights" : "Release Insights"}</span>
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          // ⏳ LLM characterizations jeszcze nie gotowe
+                          <>
+                            <p className="text-sm text-gray-400">Please wait, we're adding personal touches to your insights...</p>
+                            <div className="flex items-center justify-center space-x-3 text-blue-400/80 pt-2">
+                              <div className="w-5 h-5 border-2 border-blue-400/50 border-t-blue-400 rounded-full animate-spin"></div>
+                              <span>Personalizing...</span>
+                            </div>
+                          </>
+                        )
+                      ) : (
+                        // 👥 Uczestnicy zawsze widzą oczekiwanie
+                        <>
+                          <p className="text-sm text-gray-400">
+                            {allSocialAnalysisCompleted
+                              ? "Waiting for host to release the insights..."
+                              : "Please wait, we're finalizing your personal insights..."
+                            }
+                          </p>
+                          <div className="flex items-center justify-center space-x-3 text-blue-400/80 pt-2">
+                            <div className="w-5 h-5 border-2 border-blue-400/50 border-t-blue-400 rounded-full animate-spin"></div>
+                            <span>{allSocialAnalysisCompleted ? "Waiting..." : "Personalizing..."}</span>
+                          </div>
+                        </>
                       )}
                     </div>
-                    <div className="space-y-2 mt-4">
-                      {rankedParticipants.map((participant) => (
-                        <div key={participant.userId} className={`p-3 rounded-xl border flex items-center space-x-3 transition-all duration-500 ${ participant.rank === 1 ? 'border-yellow-400/50 bg-green-900/20 shadow-[0_0_25px_rgba(253,224,71,0.3)]' : participant.hasCompleted ? 'border-green-700/30 bg-green-900/20' : 'border-gray-700/50 bg-gray-800/30'}`}>
-                          <div className="text-xl font-bold w-10 text-center flex items-center justify-center">
-                            {participant.hasCompleted ? (participant.rank === 1 ? <Award className="w-6 h-6 text-yellow-400" /> : <span className="text-gray-400">{participant.rank}</span>) : <Clock className="w-5 h-5 mx-auto text-yellow-400"/>}
-                          </div>
-                          <div className="w-10 h-10 rounded-full p-0.5 bg-gradient-to-tr from-purple-500 to-pink-500">
-                            {participant.pic_url ? <img src={participant.pic_url} alt="Participant" className="w-full h-full rounded-full object-cover"/> : <div className="w-full h-full rounded-full bg-gradient-to-br from-gray-700 to-gray-800 flex items-center justify-center"><span className="text-white text-xs font-medium">{participant.username.charAt(0).toUpperCase()}</span></div>}
-                          </div>
-                          <div className="flex-1">
-                            <p className="text-white text-sm font-medium">@{participant.username}</p>
-                            <div className="text-xs text-gray-400 mt-0.5">
-                              {participant.rank === 1 ? <span className="inline-flex items-center"><span>{participant.isAdmin ? 'Host' : 'Participant'} •</span><span className="ml-1.5 px-2 py-0.5 font-bold text-black bg-yellow-400 rounded-full">{participant.userId === userId ? 'You Win!' : 'Winner'}</span></span> : <span>{(participant.isAdmin ? 'Host' : 'Participant') + ` • ${participant.hasCompleted ? 'Completed' : 'In progress...'}`}</span>}
-                            </div>
-                          </div>
-                          {participant.hasCompleted && (
-                            <div className="text-right">
-                              <p className={`text-lg font-mono ${ participant.rank === 1 ? 'text-yellow-300' : 'text-purple-300'}`}>{participant.totalTime}s</p>
-                              <p className="text-xs text-gray-500">Time</p>
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  {resultsPhase === 'analyzing' && <div className="p-6 rounded-xl bg-gray-900/40 border border-purple-700/30 backdrop-blur-sm space-y-4 text-center"><div className="flex items-center justify-center space-x-3"><BrainCircuit className="w-6 h-6 text-purple-400" /><h2 className="text-xl text-white">Analyzing Results</h2></div><p className="text-sm text-gray-400">Please wait, we're getting to know you even better...</p><div className="flex items-center justify-center space-x-3 text-purple-400/80 pt-2"><div className="w-5 h-5 border-2 border-purple-400/50 border-t-purple-400 rounded-full animate-spin"></div><span>Processing...</span></div></div>}
+                  )}
                 </motion.div>
               )}
             </AnimatePresence>

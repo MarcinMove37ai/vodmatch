@@ -1,4 +1,4 @@
-// src/hooks/useSession.ts - WERSJA Z POPRAWIONYM ZWRACANIEM DANYCH
+// src/hooks/useSession.ts - WERSJA Z POPRAWIONYM ZWRACANIEM DANYCH I RELEASE INSIGHTS
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
@@ -37,6 +37,7 @@ interface UseSessionReturn {
   joinSession: (sessionId: string) => Promise<boolean>
   closeRegistration: () => Promise<boolean>
   startQuiz: () => Promise<boolean>
+  releaseInsights: () => Promise<boolean> // 🆕 NOWA FUNKCJA
   getParticipantStatus: () => { ready: number, total: number }
   isAdmin: boolean
   canContinue: boolean
@@ -188,6 +189,46 @@ export function useSession(): UseSessionReturn {
     }
   }, [clientSession])
 
+  // 🆕 NOWA FUNKCJA: Release insights dla admina via events endpoint
+  const releaseInsights = useCallback(async (): Promise<boolean> => {
+    if (!clientSession || !clientSession.isAdmin) {
+      setError('Only admin can release insights')
+      return false
+    }
+
+    try {
+      setIsLoading(true)
+      setError(null)
+      console.log(`🚀 Releasing insights for session ${clientSession.sessionId}`)
+
+      const response = await fetch(`/api/session/${clientSession.sessionId}/events`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'release_insights', userId: clientSession.userId })
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to release insights: ${response.status}`)
+      }
+
+      const result = await response.json()
+      if (result.session) {
+        setSession(result.session)
+        ClientSessionManager.updateLastSync(clientSession.sessionId)
+        console.log(`✅ Insights released successfully for session ${clientSession.sessionId}`)
+      }
+
+      return true
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+      console.error('❌ Failed to release insights:', errorMessage)
+      setError(errorMessage)
+      return false
+    } finally {
+      setIsLoading(false)
+    }
+  }, [clientSession])
+
   // Pozostałe funkcje dostosowane, aby nadal zwracały boolean
   const updatePlatforms = useCallback(async (platforms: StreamingPlatform[]): Promise<boolean> => {
     const result = await updateSession('update_platforms', { platforms });
@@ -332,6 +373,7 @@ export function useSession(): UseSessionReturn {
     refreshSession,
     closeRegistration,
     startQuiz,
+    releaseInsights, // 🆕 DODANA FUNKCJA
     getParticipantStatus,
     isAdmin,
     canContinue

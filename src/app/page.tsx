@@ -1,4 +1,4 @@
-// src/app/page.tsx - WERSJA Z POPRAWIONĄ LOGIKĄ NAWIGACJI
+// src/app/page.tsx - WERSJA Z POPRAWIONĄ LOGIKĄ NAWIGACJI I RELEASE INSIGHTS
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
@@ -48,7 +48,8 @@ const userHasCompletedQuiz = (session: any, userId: string): boolean => {
 
 export default function VodMatchApp() {
   const { isMobile } = useDeviceDetection()
-  const { session, clientSession, isLoading: sessionLoading, error: sessionError, createSession, updatePlatforms, updateMode, updateAdminProfile, updateParticipantProfile, submitQuizResults, clearSession, refreshSession, isAdmin, closeRegistration, startQuiz, getParticipantStatus } = useSession()
+  // 🔄 ZMIANA: Dodano releaseInsights do destructuring
+  const { session, clientSession, isLoading: sessionLoading, error: sessionError, createSession, updatePlatforms, updateMode, updateAdminProfile, updateParticipantProfile, submitQuizResults, clearSession, refreshSession, isAdmin, closeRegistration, startQuiz, releaseInsights, getParticipantStatus } = useSession()
   const [currentStep, setCurrentStep] = useState<AppStep>('login')
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [loginError, setLoginError] = useState<string>('')
@@ -114,8 +115,9 @@ export default function VodMatchApp() {
     }
   }, [realTimeSession, isAuthenticated, clientSession, currentStep, isAdmin])
 
+  // 🔄 ZMIANA: Obsługa nowych statusów insights_ready i insights_released
   const determineStepFromSession = (session: any, isAdmin: boolean, userId: string): AppStep => {
-    if (session.status === 'results') return 'waiting_for_results'
+    if (session.status === 'results' || session.status === 'insights_ready' || session.status === 'insights_released') return 'waiting_for_results'
     if (userHasCompletedQuiz(session, userId)) return 'waiting_for_results'
     if (isAdmin) {
       if (!session?.selectedPlatforms?.length) return 'platforms'
@@ -136,8 +138,9 @@ export default function VodMatchApp() {
     }
   }
 
+  // 🔄 ZMIANA: Obsługa nowych statusów insights_ready i insights_released
   const validateStepAgainstSession = (step: AppStep, session: any, isAdmin: boolean, userId: string): AppStep => {
-    if (session.status === 'results') return 'waiting_for_results'
+    if (session.status === 'results' || session.status === 'insights_ready' || session.status === 'insights_released') return 'waiting_for_results'
     // @ts-ignore - 'results' is a possible value from old localStorage
     if (step === 'results' || step === 'waiting_for_results') {
       return userHasCompletedQuiz(session, userId) ? 'waiting_for_results' : 'quiz'
@@ -335,6 +338,7 @@ export default function VodMatchApp() {
             realTimeLastUpdate={realTimeLastUpdate}
             realTimeReconnect={realTimeReconnect}
             onRefreshSession={handleRefreshSession}
+            releaseInsights={releaseInsights} // 🆕 PRZEKAZANY PROP
           />
         </>
       )}

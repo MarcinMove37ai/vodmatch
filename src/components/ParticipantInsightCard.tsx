@@ -67,7 +67,7 @@ export default function ParticipantInsightCard({ analysis, pic_url, llm_characte
         </div>
         <div>
           <p className="text-white font-medium">@{analysis.displayName}</p>
-          <p className="text-purple-300 text-sm">{llm_characterization ? "AI-Generated Insight" : title}</p>
+          <p className="text-purple-300 text-sm">{title}</p>
         </div>
       </div>
       <div className="p-1 bg-gray-800/60 rounded-lg flex items-center space-x-1">

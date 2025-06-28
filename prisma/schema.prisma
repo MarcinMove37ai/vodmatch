@@ -48,8 +48,8 @@ model SessionProfile {
   social_analysis_error  String?   @map("social_analysis_error") @db.Text
   social_analyzed_at     DateTime? @map("social_analyzed_at")
 
-  // ‼️ NOWA KOLUMNA: Charakterystyka LLM (zwiększony limit do 500 znaków)
-  llm_characterization String? @map("llm_characterization") @db.VarChar(500)
+  // ‼️ ZWIĘKSZONY LIMIT: Charakterystyka LLM (600 znaków)
+  llm_characterization String? @map("llm_characterization") @db.VarChar(600)
 
   // ‼️ KROK 1: Dodana kolumna na wyniki analizy indywidualnej
   individual_analysis Json? @map("individual_analysis")

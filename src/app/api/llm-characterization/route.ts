@@ -138,7 +138,7 @@ ${postsForAnalysis}
 --- RULES OF ENGAGEMENT ---
 1.  **THE ULTIMATE GOAL:** Your description must be genuinely positive, insightful, and designed to make the user smile. The required tone is friendly, sincere, and can be a little playful. It should feel like a warm, clever compliment.
 
-2.  **UNBREAKABLE LENGTH RULE:** The final text MUST be between 360 and 440 characters, including spaces. Responses outside this range are a failure. You must check your character count.
+2.  **UNBREAKABLE LENGTH RULE:** The final text MUST be between 300 and 400 characters, including spaces. Responses outside this range are a failure. You must check your character count.
 
 3.  **OUTPUT FORMATTING:**
     * The response MUST start with the exact phrase "You are...".
