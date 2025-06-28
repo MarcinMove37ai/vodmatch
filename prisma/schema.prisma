@@ -27,6 +27,9 @@ model Session {
   // 🎬 NOWA KOLUMNA: Preferencje filmowe ustawione przez zwycięzcę
   movie_preferences Json? @map("movie_preferences")
 
+  // 🎬 NOWA KOLUMNA: Koncepty filmów wygenerowane przez LLM
+  llm_movies Json? @map("llm_movies")
+
   // Relacja do profili
   profiles SessionProfile[]
 

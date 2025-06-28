@@ -1,4 +1,4 @@
-// lib/sessionDb.ts - WERSJA Z INTEGRACJĄ LLM CHARACTERIZATION I KONTROLĄ RELEASE INSIGHTS
+// lib/sessionDb.ts - WERSJA Z INTEGRACJĄ LLM CHARACTERIZATION I KONTROLĄ RELEASE INSIGHTS + MOVIE RECOMMENDATIONS
 import { prisma } from './prisma'
 import { Prisma } from '@prisma/client'
 
@@ -100,6 +100,45 @@ export class SessionDatabase {
 
     } catch (error) {
       console.error(`❌ [LLM Characterization] Failed for profileId ${profileId}:`, error)
+    }
+  }
+
+  // 🎬 NOWA METODA: Wyzwalanie rekomendacji filmowych
+  private async triggerMovieRecommendations(sessionId: string): Promise<void> {
+    try {
+      console.log(`🎬 [Movie Recommendations] Starting for session: ${sessionId}`)
+
+      const baseUrl = process.env.NEXTAUTH_URL || process.env.VERCEL_URL || 'http://localhost:3000'
+      const response = await fetch(`${baseUrl}/api/movie-recommendations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId })
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error(`❌ [Movie Recommendations] HTTP error ${response.status}: ${errorText}`)
+        return
+      }
+
+      const result = await response.json()
+
+      if (result.success) {
+        console.log(`✅ [Movie Recommendations] Success for session ${sessionId}: ${result.concepts?.length || 0} concepts generated`)
+
+        // 🆕 BROADCAST: Powiadom klientów o dostępności rekomendacji filmowych
+        try {
+          await broadcastSessionUpdate(sessionId, 'movie_recommendations_ready')
+          console.log(`📤 [Movie Recommendations] Broadcast sent for session ${sessionId}`)
+        } catch (broadcastError) {
+          console.log(`⚠️ [Movie Recommendations] Broadcast failed:`, broadcastError)
+        }
+      } else {
+        console.error(`❌ [Movie Recommendations] API error for session ${sessionId}:`, result.error)
+      }
+
+    } catch (error) {
+      console.error(`❌ [Movie Recommendations] Failed for session ${sessionId}:`, error)
     }
   }
 
@@ -328,6 +367,7 @@ export class SessionDatabase {
     } catch (error) { return false }
   }
 
+  // ZMODYFIKOWANA FUNKCJA: Dodano automatyczne wyzwalanie movie recommendations
   private async triggerSemanticAnalysis(sessionId: string): Promise<void> {
     console.log(`🧠 [Semantic Analysis] Starting for session: ${sessionId}`);
     try {
@@ -385,6 +425,12 @@ export class SessionDatabase {
       // Po pomyślnym zapisaniu analizy, informujemy klientów o dostępności analizy
       console.log(`📢 [Semantic Analysis] Triggering session broadcast after analysis completion for ${sessionId}`);
       await broadcastSessionUpdate(sessionId, 'analysis_completed');
+
+      // 🎬 NOWE: Automatyczne wyzwalanie rekomendacji filmowych po zapisaniu group_analysis
+      console.log(`🎬 [Semantic Analysis] Triggering movie recommendations for session ${sessionId}`);
+      this.triggerMovieRecommendations(sessionId).catch((error) => {
+        console.log(`⚠️ [Movie Recommendations] Failed for session ${sessionId}:`, error)
+      });
 
     } catch (error) {
       console.error(`❌ [Semantic Analysis] Background task failed for session ${sessionId}:`, error);
