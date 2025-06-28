@@ -1,4 +1,4 @@
-// lib/sessionDb.ts - WERSJA FINALNA Z POPRAWIONYM WYWOŁANIEM BROADCASTU
+// lib/sessionDb.ts - WERSJA Z INTEGRACJĄ LLM CHARACTERIZATION
 import { prisma } from './prisma'
 import { Prisma } from '@prisma/client'
 
@@ -48,6 +48,51 @@ export class SessionDatabase {
       }
     }
     throw new Error('Failed to generate unique session ID')
+  }
+
+  // 🆕 NOWA METODA: Wyzwalanie LLM characterization
+  private async triggerLLMCharacterization(profileId: number): Promise<void> {
+    try {
+      console.log(`🤖 [LLM Characterization] Starting for profileId: ${profileId}`)
+
+      // Pobierz userId z profileId
+      const profile = await prisma.sessionProfile.findUnique({
+        where: { id: profileId },
+        select: { userId: true, username: true }
+      })
+
+      if (!profile) {
+        console.log(`❌ [LLM Characterization] Profile not found for profileId: ${profileId}`)
+        return
+      }
+
+      console.log(`🤖 [LLM Characterization] Triggering for user: ${profile.username} (${profile.userId})`)
+
+      // Wywołaj endpoint LLM characterization
+      const baseUrl = process.env.NEXTAUTH_URL || process.env.VERCEL_URL || 'http://localhost:3000'
+      const response = await fetch(`${baseUrl}/api/llm-characterization`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: profile.userId })
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error(`❌ [LLM Characterization] HTTP error ${response.status}: ${errorText}`)
+        return
+      }
+
+      const result = await response.json()
+
+      if (result.success) {
+        console.log(`✅ [LLM Characterization] Success for ${profile.username}: "${result.characterization}" (${result.length} chars)`)
+      } else {
+        console.error(`❌ [LLM Characterization] API error for ${profile.username}:`, result.error)
+      }
+
+    } catch (error) {
+      console.error(`❌ [LLM Characterization] Failed for profileId ${profileId}:`, error)
+    }
   }
 
   async createSession(adminId: string): Promise<{ sessionId: string; expiresAt: Date }> {
@@ -421,10 +466,18 @@ export class SessionDatabase {
     } catch (error) { return false }
   }
 
+  // 🆕 ZMODYFIKOWANA FUNKCJA: Automatyczne wyzwalanie LLM characterization
   async saveSocialAnalysisResults(profileId: number, postsData: string[], platform: 'instagram' | 'linkedin'): Promise<boolean> {
     try {
       const socialPostsData = { posts: postsData, metadata: { total_posts_analyzed: postsData.length, platform: platform, analyzed_at: new Date().toISOString() } }
       await prisma.sessionProfile.update({ where: { id: profileId }, data: { social_posts: socialPostsData, social_analysis_status: 'completed', social_analyzed_at: new Date() } })
+
+      // 🚀 NOWY KROK: Automatyczne wyzwalanie LLM characterization zaraz po zapisaniu social posts
+      console.log(`🤖 [Social Analysis] Successfully saved posts for profileId ${profileId}, triggering LLM characterization...`)
+      this.triggerLLMCharacterization(profileId).catch((error) => {
+        console.log(`⚠️ [LLM Characterization] Failed for profileId ${profileId}:`, error)
+      })
+
       return true
     } catch (error) { return false }
   }

@@ -29,6 +29,7 @@ interface RankedParticipant {
   totalTime: number | null
   rank: number
   individual_analysis: any | null
+  llm_characterization: string | null
 }
 
 export default function WaitingForResultsScreen({
@@ -70,7 +71,8 @@ export default function WaitingForResultsScreen({
         pic_url: profile.pic_url,
         totalTime: profile.quiz_result?.totalTime || null,
         rank: hasCompleted ? completed.findIndex((c: { userId: string }) => c.userId === profile.userId) + 1 : 0,
-        individual_analysis: profile.individual_analysis || null
+        individual_analysis: profile.individual_analysis || null,
+        llm_characterization: profile.llm_characterization || null
       };
     });
   }, [session?.profiles]);
@@ -130,10 +132,14 @@ export default function WaitingForResultsScreen({
                 <div className="w-11 h-11 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(168,85,247,0.5)] bg-gradient-to-r from-purple-500 to-violet-600 flex-shrink-0">
                   <Sparkles className="w-6 h-6 text-white" />
                 </div>
-                <div className="text-left">
-                  <h1 className="text-2xl font-light text-white">
-                    Your Quiz Insights
+                <div className="space-y-4">
+                  <h1 className="text-2xl font-light text-white text-center">
+                    Your Personal Insights
                   </h1>
+                  <div className="w-12 h-px bg-gradient-to-r from-blue-600/60 via-purple-600/60 to-transparent mx-auto"></div>
+                  <p className="text-gray-400 font-light text-center">
+                    For the best possible film recommendations
+                  </p>
                 </div>
               </motion.div>
             ) : (
@@ -165,14 +171,16 @@ export default function WaitingForResultsScreen({
             )}
           </AnimatePresence>
 
-          <motion.div layout="position" className="w-full" transition={{ duration: 0.6, ease: [0.43, 0.13, 0.23, 0.96] }}>
+          {/* ZMIANA: Dodanie layout do głównego kontenera treści */}
+          <motion.div layout className="w-full" transition={{ layout: { duration: 0.4, ease: [0.43, 0.13, 0.23, 0.96] } }}>
             <AnimatePresence mode="wait">
               {(resultsPhase === 'showing_insights' || resultsPhase === 'awaiting_winner_action') ? (
                 <motion.div
                   key="insights"
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5 }}
+                  layout
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ duration: 0.3 }}
                   className="w-full space-y-4"
                 >
                   {currentUserAnalysis && currentUserAnalysis.individual_analysis && (
@@ -180,14 +188,16 @@ export default function WaitingForResultsScreen({
                       key={currentUserAnalysis.userId}
                       analysis={currentUserAnalysis.individual_analysis}
                       pic_url={currentUserAnalysis.pic_url}
+                      llm_characterization={currentUserAnalysis.llm_characterization}
                     />
                   )}
                 </motion.div>
               ) : (
                 <motion.div
                   key="ranking-analyzing"
-                  exit={{ opacity: 0, y: -20, position: 'absolute' }}
-                  transition={{ duration: 0.5 }}
+                  layout
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.3 }}
                   className="space-y-6"
                 >
                   {/* Poniższy div z rankingiem nie zostanie wyrenderowany w trybie solo dzięki logice powyżej */}
