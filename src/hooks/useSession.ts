@@ -19,6 +19,12 @@ interface QuizAnswer {
   timeSpent: number
 }
 
+// 🎬 NOWY TYP: Movie preferences
+interface MoviePreferences {
+  excludedGenres: string[]
+  minImdbRating: number
+}
+
 interface UseSessionReturn {
   session: AppSession | null
   clientSession: ClientSession | null
@@ -38,6 +44,7 @@ interface UseSessionReturn {
   closeRegistration: () => Promise<boolean>
   startQuiz: () => Promise<boolean>
   releaseInsights: () => Promise<boolean> // 🆕 NOWA FUNKCJA
+  setMoviePreferences: (moviePreferences: MoviePreferences) => Promise<boolean> // 🎬 NOWA FUNKCJA
   getParticipantStatus: () => { ready: number, total: number }
   isAdmin: boolean
   canContinue: boolean
@@ -229,6 +236,34 @@ export function useSession(): UseSessionReturn {
     }
   }, [clientSession])
 
+  // 🎬 NOWA FUNKCJA: Set movie preferences
+  const setMoviePreferences = useCallback(async (moviePreferences: MoviePreferences): Promise<boolean> => {
+    if (!clientSession) {
+      setError('No active session')
+      return false
+    }
+
+    try {
+      setIsLoading(true)
+      setError(null)
+      console.log(`🎬 Setting movie preferences for session ${clientSession.sessionId}`)
+
+      const result = await updateSession('set_movie_preferences', { moviePreferences })
+      if (result) {
+        console.log(`✅ Movie preferences set successfully for session ${clientSession.sessionId}`)
+        return true
+      }
+      return false
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+      console.error('❌ Failed to set movie preferences:', errorMessage)
+      setError(errorMessage)
+      return false
+    } finally {
+      setIsLoading(false)
+    }
+  }, [clientSession, updateSession])
+
   // Pozostałe funkcje dostosowane, aby nadal zwracały boolean
   const updatePlatforms = useCallback(async (platforms: StreamingPlatform[]): Promise<boolean> => {
     const result = await updateSession('update_platforms', { platforms });
@@ -374,6 +409,7 @@ export function useSession(): UseSessionReturn {
     closeRegistration,
     startQuiz,
     releaseInsights, // 🆕 DODANA FUNKCJA
+    setMoviePreferences, // 🎬 NOWA FUNKCJA
     getParticipantStatus,
     isAdmin,
     canContinue

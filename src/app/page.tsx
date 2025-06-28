@@ -17,6 +17,7 @@ import QRCodeScreen from '@/components/QRCodeScreen'
 import WaitingRoomScreen from '@/components/WaitingRoomScreen'
 import QuizScreen from '@/components/QuizScreen'
 import WaitingForResultsScreen from '@/components/WaitingForResultsScreen'
+import MoviePreferencesScreen from '@/components/MoviePreferencesScreen'
 
 // Types
 import { StreamingPlatform } from '@/types/platform'
@@ -32,7 +33,7 @@ interface QuizAnswer {
 
 const CORRECT_PASSWORD = 'aicc$'
 
-type AppStep = 'login' | 'platforms' | 'mode' | 'profile' | 'participant_profile' | 'qr_code' | 'waiting_room' | 'quiz' | 'waiting_for_results'
+type AppStep = 'login' | 'platforms' | 'mode' | 'profile' | 'participant_profile' | 'qr_code' | 'waiting_room' | 'quiz' | 'waiting_for_results' | 'movie_preferences'
 
 const getCurrentStepKey = (sessionId: string, userId: string) => `vodmatch_step_${sessionId}_${userId}`
 const saveCurrentStep = (sessionId: string, userId: string, step: AppStep) => { try { localStorage.setItem(getCurrentStepKey(sessionId, userId), step) } catch (e) { console.error('Failed to save currentStep:', e) } }
@@ -48,8 +49,8 @@ const userHasCompletedQuiz = (session: any, userId: string): boolean => {
 
 export default function VodMatchApp() {
   const { isMobile } = useDeviceDetection()
-  // 🔄 ZMIANA: Dodano releaseInsights do destructuring
-  const { session, clientSession, isLoading: sessionLoading, error: sessionError, createSession, updatePlatforms, updateMode, updateAdminProfile, updateParticipantProfile, submitQuizResults, clearSession, refreshSession, isAdmin, closeRegistration, startQuiz, releaseInsights, getParticipantStatus } = useSession()
+  // 🔄 ZMIANA: Dodano setMoviePreferences do destructuring
+  const { session, clientSession, isLoading: sessionLoading, error: sessionError, createSession, updatePlatforms, updateMode, updateAdminProfile, updateParticipantProfile, submitQuizResults, clearSession, refreshSession, isAdmin, closeRegistration, startQuiz, releaseInsights, setMoviePreferences, getParticipantStatus } = useSession()
   const [currentStep, setCurrentStep] = useState<AppStep>('login')
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [loginError, setLoginError] = useState<string>('')
@@ -59,7 +60,7 @@ export default function VodMatchApp() {
 
   const shouldEnableRealTime = () => {
     if (!session?.sessionId || !isAuthenticated) return false
-    const realTimeSteps: AppStep[] = ['participant_profile', 'qr_code', 'waiting_room', 'quiz', 'waiting_for_results']
+    const realTimeSteps: AppStep[] = ['participant_profile', 'qr_code', 'waiting_room', 'quiz', 'waiting_for_results', 'movie_preferences']
     return realTimeSteps.includes(currentStep)
   }
 
@@ -140,11 +141,16 @@ export default function VodMatchApp() {
 
   // 🔄 ZMIANA: Obsługa nowych statusów insights_ready i insights_released
   const validateStepAgainstSession = (step: AppStep, session: any, isAdmin: boolean, userId: string): AppStep => {
-    if (session.status === 'results' || session.status === 'insights_ready' || session.status === 'insights_released') return 'waiting_for_results'
-    // @ts-ignore - 'results' is a possible value from old localStorage
-    if (step === 'results' || step === 'waiting_for_results') {
-      return userHasCompletedQuiz(session, userId) ? 'waiting_for_results' : 'quiz'
-    }
+  // 🎬 NOWA KLAUZULA OCHRONNA: Jeśli celem jest ekran preferencji, pozwól na to.
+  if (step === 'movie_preferences') {
+    return 'movie_preferences';
+  }
+
+  if (session.status === 'results' || session.status === 'insights_ready' || session.status === 'insights_released') return 'waiting_for_results'
+  // @ts-ignore - 'results' is a possible value from old localStorage
+  if (step === 'results' || step === 'waiting_for_results') {
+    return userHasCompletedQuiz(session, userId) ? 'waiting_for_results' : 'quiz'
+  }
     if (isAdmin) {
       if (step === 'mode' && !session.selectedPlatforms?.length) return 'platforms'
       if (step === 'profile' && !session.viewingMode) return 'mode'
@@ -211,6 +217,30 @@ export default function VodMatchApp() {
   const handleCloseRegistration = async () => { setIsProcessing(true); if (await closeRegistration()) { await refreshSession(); updateCurrentStep('waiting_room'); } setIsProcessing(false); }
   const handleStartQuiz = async () => { setIsProcessing(true); if (await startQuiz()) { await refreshSession(); updateCurrentStep('quiz'); } else { alert('Failed to start quiz.'); } setIsProcessing(false); }
   const handleRefreshSession = async (): Promise<void> => { await refreshSession(); }
+
+  // 🎬 NOWY HANDLER: Movie Preferences
+  const handleMoviePreferences = async (preferences: { excludedGenres: string[], minImdbRating: number }) => {
+    setIsProcessing(true)
+    try {
+      const success = await setMoviePreferences(preferences)
+      if (success) {
+        await refreshSession()
+        updateCurrentStep('waiting_for_results')
+      } else {
+        alert('Failed to set movie preferences')
+      }
+    } catch (error) {
+      console.error('❌ Error setting movie preferences:', error)
+      alert('Failed to set movie preferences')
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  // 🎬 NOWY HANDLER: Navigate to Movie Preferences
+  const handleSetMoviePreferences = () => {
+    updateCurrentStep('movie_preferences')
+  }
 
   const handleQuizComplete = async (answers: QuizAnswer[]): Promise<void> => {
     if (!clientSession) return;
@@ -338,8 +368,16 @@ export default function VodMatchApp() {
             realTimeLastUpdate={realTimeLastUpdate}
             realTimeReconnect={realTimeReconnect}
             onRefreshSession={handleRefreshSession}
-            releaseInsights={releaseInsights} // 🆕 PRZEKAZANY PROP
+            releaseInsights={releaseInsights}
+            onSetMoviePreferences={handleSetMoviePreferences} // 🎬 NOWY PROP
           />
+        </>
+      )}
+
+      {currentStep === 'movie_preferences' && (
+        <>
+          <LogoutButton onLogout={handleLogout} />
+          <MoviePreferencesScreen onContinue={handleMoviePreferences} />
         </>
       )}
 

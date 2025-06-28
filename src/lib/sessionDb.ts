@@ -224,6 +224,23 @@ export class SessionDatabase {
     }
   }
 
+  // 🎬 NOWA METODA: Ustawienie preferencji filmowych
+  async setMoviePreferences(sessionId: string, moviePreferences: { excludedGenres: string[], minImdbRating: number }): Promise<boolean> {
+    try {
+      await prisma.session.update({
+        where: { sessionId: sessionId.toUpperCase() },
+        data: {
+          movie_preferences: moviePreferences
+        }
+      })
+      console.log(`✅ Updated movie preferences for session ${sessionId}:`, moviePreferences)
+      return true
+    } catch (error) {
+      console.error(`❌ Error updating movie preferences for session ${sessionId}:`, error)
+      return false
+    }
+  }
+
   async saveUserProfile(
     sessionId: string,
     userId: string,

@@ -17,7 +17,7 @@ interface ApiError {
 interface UpdateSessionRequest {
   action: 'update_platforms' | 'update_mode' | 'update_admin_profile' |
           'update_participant_profile' | 'update_current_step' |
-          'close_registration' | 'start_quiz'  // 🆕 NOWE ACTIONS
+          'close_registration' | 'start_quiz' | 'set_movie_preferences'  // 🆕 NOWE ACTIONS
   userId: string
   platforms?: string[]
   mode?: string
@@ -27,6 +27,10 @@ interface UpdateSessionRequest {
     username: string
     name: string
     profilePictureUrl: string
+  }
+  moviePreferences?: {
+    excludedGenres: string[]
+    minImdbRating: number
   }
 }
 
@@ -106,6 +110,15 @@ export async function PATCH(
       }
       // Participants can update their own profiles
       console.log(`✅ Participant ${userId} authorized to update their profile`)
+    } else if (action === 'set_movie_preferences') {
+      // For movie preferences: check if user completed quiz (can be any user, not just admin)
+      const userProfile = await sessionDb.getUserProfile(sessionId, userId)
+      if (!userProfile) {
+        console.log(`❌ User ${userId} not found in session ${sessionId}`)
+        return NextResponse.json({
+          error: 'User not found in session'
+        }, { status: 403 })
+      }
     } else {
       // For admin actions: require admin authorization
       if (session.adminId !== userId) {
@@ -330,6 +343,60 @@ export async function PATCH(
             await broadcastSessionUpdate(sessionId, 'quiz_started')
           } catch (sseError) {
             console.log(`⚠️ SSE: Failed to broadcast quiz started:`, sseError)
+          }
+        }
+        break
+      }
+
+      // 🎬 NOWA AKCJA: Ustawienie preferencji filmowych przez zwycięzcę
+      case 'set_movie_preferences': {
+        const { moviePreferences } = body
+        if (!moviePreferences) {
+          return NextResponse.json({
+            error: 'Movie preferences data is required'
+          }, { status: 400 })
+        }
+
+        // Walidacja danych
+        if (!Array.isArray(moviePreferences.excludedGenres) ||
+            moviePreferences.excludedGenres.length !== 3 ||
+            typeof moviePreferences.minImdbRating !== 'number' ||
+            moviePreferences.minImdbRating < 1 ||
+            moviePreferences.minImdbRating > 8) {
+          return NextResponse.json({
+            error: 'Invalid movie preferences format'
+          }, { status: 400 })
+        }
+
+        // Sprawdź czy użytkownik to zwycięzca
+        const sessionWithProfiles = session as any
+        const userProfile = sessionWithProfiles.profiles?.find((p: any) => p.userId === userId)
+        if (!userProfile) {
+          return NextResponse.json({
+            error: 'User not found in session'
+          }, { status: 403 })
+        }
+
+        // Sprawdź czy użytkownik ukończył quiz
+        const hasCompletedQuiz = !!(userProfile.quiz_result &&
+                                   typeof userProfile.quiz_result === 'object' &&
+                                   userProfile.quiz_result.completedAt)
+        if (!hasCompletedQuiz) {
+          return NextResponse.json({
+            error: 'Only users who completed quiz can set preferences'
+          }, { status: 403 })
+        }
+
+        console.log(`🎬 Setting movie preferences for user ${userId}`)
+        success = await sessionDb.setMoviePreferences(sessionId, moviePreferences)
+
+        if (success) {
+          // 🆕 SSE BROADCAST: Movie preferences ustawione
+          console.log(`📢 SSE: Broadcasting movie preferences set for session ${sessionId}`)
+          try {
+            await broadcastSessionUpdate(sessionId, 'movie_preferences_set')
+          } catch (sseError) {
+            console.log(`⚠️ SSE: Failed to broadcast movie preferences:`, sseError)
           }
         }
         break

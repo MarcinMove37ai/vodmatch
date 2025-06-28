@@ -24,6 +24,9 @@ model Session {
   // ‼️ KROK 1: Dodana kolumna na wyniki analizy grupowej
   group_analysis Json? @map("group_analysis")
 
+  // 🎬 NOWA KOLUMNA: Preferencje filmowe ustawione przez zwycięzcę
+  movie_preferences Json? @map("movie_preferences")
+
   // Relacja do profili
   profiles SessionProfile[]
 
