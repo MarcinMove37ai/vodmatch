@@ -30,8 +30,9 @@ model Session {
   // 🎬 NOWA KOLUMNA: Koncepty filmów wygenerowane przez LLM
   llm_movies Json? @map("llm_movies")
 
-  // Relacja do profili
-  profiles SessionProfile[]
+  // Relacje
+  profiles     SessionProfile[]
+  movieResults SessionMovieResult[]
 
   @@map("sessions")
 }
@@ -70,4 +71,47 @@ model SessionProfile {
 
   @@unique([sessionId, userId])
   @@map("session_profiles")
+}
+
+model SessionMovieResult {
+  id                 Int      @id @default(autoincrement())
+  sessionId          String   @map("session_id") @db.VarChar(6)
+  queryNumber        Int      @map("query_number") // 1, 2, lub 3
+  conceptGenre       String   @map("concept_genre") @db.VarChar(50)
+  conceptDescription String   @map("concept_description") @db.Text
+
+  // Dane filmu z vector search
+  movieId            String   @map("movie_id")
+  movieTitle         String   @map("movie_title")
+  movieDescription   String   @map("movie_description") @db.Text
+  movieYear          String   @map("movie_year")
+  movieGenres        String   @map("movie_genres")
+  movieDirectors     String   @map("movie_directors")
+  movieImdbRating    String   @map("movie_imdb_rating")
+  moviePlatform      Json     @map("movie_platform") // array lub string
+  movieRuntime       String   @map("movie_runtime")
+  movieContentRating String   @map("movie_content_rating")
+
+  // 🆕 NOWE POLA z movie-search
+  movieImdbId        String?  @map("movie_imdb_id")
+  movieType          String?  @map("movie_type") @db.VarChar(50)
+  movieImgUrl        String?  @map("movie_img_url") @db.Text
+
+  // Meta dane search
+  searchScore        Float    @map("search_score")
+  searchType         String   @map("search_type") // dense/sparse/hybrid/merged_*
+  hybridScore        Float?   @map("hybrid_score")
+  denseScore         Float?   @map("dense_score")
+  sparseScore        Float?   @map("sparse_score")
+  platformCount      Int?     @map("platform_count")
+
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  // Relacja do Session
+  session            Session  @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
+
+  // Indeksy
+  @@index([sessionId])
+  @@index([sessionId, queryNumber])
+  @@map("session_movie_results")
 }

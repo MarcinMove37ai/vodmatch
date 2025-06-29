@@ -1,4 +1,4 @@
-// src/components/WaitingForResultsScreen.tsx - WERSJA Z PRZYWRÓCONYM ORYGINALNYM STYLEM NAGŁÓWKA
+// src/components/WaitingForResultsScreen.tsx - WERSJA Z PRZYWRÓCONYM ORYGINALNYM STYLEM NAGŁÓWKA + MOVIE SEARCH
 'use client'
 
 import { useMemo, useState, useEffect } from 'react'
@@ -19,6 +19,8 @@ interface WaitingForResultsScreenProps {
   onRefreshSession: () => Promise<void>
   releaseInsights?: () => Promise<boolean>
   onSetMoviePreferences?: () => void
+  movieSearchCompleted?: boolean  // 🆕 NOWY PROP
+  onFindMovies?: () => void       // 🆕 NOWY PROP
 }
 
 interface RankedParticipant {
@@ -42,7 +44,9 @@ export default function WaitingForResultsScreen({
   realTimeConnected = false,
   onRefreshSession,
   releaseInsights,
-  onSetMoviePreferences
+  onSetMoviePreferences,
+  movieSearchCompleted = false,  // 🆕 NOWY PROP
+  onFindMovies                   // 🆕 NOWY PROP
 }: WaitingForResultsScreenProps) {
   const isConnected = realTimeConnected
   const isSoloMode = session?.viewingMode === 'solo'
@@ -52,6 +56,16 @@ export default function WaitingForResultsScreen({
   )
 
   const [isReleasingInsights, setIsReleasingInsights] = useState(false)
+
+  // 🆕 NOWA LOGIKA: Sprawdza stan wyszukiwania filmów
+  const movieSearchState = useMemo(() => {
+    const hasPreferences = !!session?.movie_preferences
+    const hasResults = movieSearchCompleted || !!session?.movie_search_results || !!session?.llm_movies
+
+    if (!hasPreferences) return 'no_preferences'
+    if (hasResults) return 'completed'
+    return 'searching'
+  }, [session?.movie_preferences, movieSearchCompleted, session?.movie_search_results, session?.llm_movies])
 
   const rankedParticipants: RankedParticipant[] = useMemo(() => {
     if (!session?.profiles) return []
@@ -266,12 +280,30 @@ export default function WaitingForResultsScreen({
                               </div>
                             )
                           ) : (
-                            session?.movie_preferences && (
-                              <button className="w-full bg-gradient-to-r from-emerald-500 to-green-500 text-white font-bold py-3 px-6 rounded-lg shadow-lg shadow-emerald-500/25 hover:shadow-green-500/30 hover:brightness-110 transition-all duration-300 flex items-center justify-center space-x-2.5">
-                                <Film className="w-5 h-5"/>
-                                <span>Find Movies</span>
-                              </button>
-                            )
+                            session?.movie_preferences && (() => {
+                              switch (movieSearchState) {
+                                case 'searching':
+                                  return (
+                                    <div className="flex items-center justify-center text-center text-blue-400 text-sm space-x-3">
+                                      <div className="w-5 h-5 border-2 border-blue-400/50 border-t-blue-400 rounded-full animate-spin"></div>
+                                      <p>Searching for perfect movies...</p>
+                                    </div>
+                                  )
+                                case 'completed':
+                                  return (
+                                    <button
+                                      onClick={onFindMovies}
+                                      className="w-full bg-gradient-to-r from-emerald-500 to-green-500 text-white font-bold py-3 px-6 rounded-lg shadow-lg shadow-emerald-500/25 hover:shadow-green-500/30 hover:brightness-110 transition-all duration-300 flex items-center justify-center space-x-2.5 group"
+                                    >
+                                      <Film className="w-5 h-5 group-hover:scale-110 transition-transform"/>
+                                      <span>View Movies</span>
+                                      <div className="w-2 h-2 bg-emerald-300 rounded-full animate-pulse"></div>
+                                    </button>
+                                  )
+                                default:
+                                  return null
+                              }
+                            })()
                           )}
                         </motion.div>
                       </>

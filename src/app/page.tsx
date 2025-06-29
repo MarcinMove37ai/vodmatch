@@ -1,4 +1,4 @@
-// src/app/page.tsx - WERSJA Z POPRAWIONĄ LOGIKĄ NAWIGACJI I RELEASE INSIGHTS
+// src/app/page.tsx - WERSJA Z POPRAWIONĄ LOGIKĄ NAWIGACJI I RELEASE INSIGHTS + MOVIE SEARCH
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
@@ -57,6 +57,8 @@ export default function VodMatchApp() {
   const [showContent, setShowContent] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [showDebug, setShowDebug] = useState(false)
+  // 🆕 NOWY STAN: Movie search completed
+  const [movieSearchCompleted, setMovieSearchCompleted] = useState(false)
 
   const shouldEnableRealTime = () => {
     if (!session?.sessionId || !isAuthenticated) return false
@@ -115,6 +117,38 @@ export default function VodMatchApp() {
       }
     }
   }, [realTimeSession, isAuthenticated, clientSession, currentStep, isAdmin])
+
+  // 🆕 NOWY USEEFFECT: SSE listener dla movie search
+  useEffect(() => {
+    if (!effectiveSession?.sessionId || !isAuthenticated) return
+
+    const eventSource = new EventSource(`/api/session/${effectiveSession.sessionId}/events`)
+
+    eventSource.onmessage = (event) => {
+      const data = JSON.parse(event.data)
+      console.log('📡 SSE Event:', data.type)
+
+      if (data.type === 'movie_search_completed') {
+        console.log('✅ Movie search completed!')
+        setMovieSearchCompleted(true)
+      }
+    }
+
+    eventSource.onerror = (error) => {
+      console.log('❌ SSE Error:', error)
+    }
+
+    return () => eventSource.close()
+  }, [effectiveSession?.sessionId, isAuthenticated, refreshSession])
+
+  // 🆕 NOWY USEEFFECT: Reset stanu przy zmianie preferencji
+  useEffect(() => {
+    if (effectiveSession?.movie_search_results || effectiveSession?.llm_movies) {
+      setMovieSearchCompleted(true)
+    } else if (effectiveSession?.movie_preferences) {
+      setMovieSearchCompleted(false)
+    }
+  }, [effectiveSession?.movie_search_results, effectiveSession?.llm_movies, effectiveSession?.movie_preferences])
 
   // 🔄 ZMIANA: Obsługa nowych statusów insights_ready i insights_released
   const determineStepFromSession = (session: any, isAdmin: boolean, userId: string): AppStep => {
@@ -240,6 +274,13 @@ export default function VodMatchApp() {
   // 🎬 NOWY HANDLER: Navigate to Movie Preferences
   const handleSetMoviePreferences = () => {
     updateCurrentStep('movie_preferences')
+  }
+
+  // 🆕 NOWY HANDLER: Find Movies
+  const handleFindMovies = () => {
+    console.log('🎬 Finding movies...')
+    // TODO: Nawigacja do strony z filmami
+    alert('Movies page - coming soon!')
   }
 
   const handleQuizComplete = async (answers: QuizAnswer[]): Promise<void> => {
@@ -369,7 +410,9 @@ export default function VodMatchApp() {
             realTimeReconnect={realTimeReconnect}
             onRefreshSession={handleRefreshSession}
             releaseInsights={releaseInsights}
-            onSetMoviePreferences={handleSetMoviePreferences} // 🎬 NOWY PROP
+            onSetMoviePreferences={handleSetMoviePreferences}
+            movieSearchCompleted={movieSearchCompleted}  // 🆕 NOWY PROP
+            onFindMovies={handleFindMovies}              // 🆕 NOWY PROP
           />
         </>
       )}

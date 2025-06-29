@@ -268,11 +268,12 @@ ${llmCharacterizationCount === 0 ?
 --- INSTRUCTIONS ---
 1. Based on the group dynamics and ${llmCharacterizationCount > 0 ? 'individual characteristics' : 'psychological insights'}, CREATE 3 original film concepts that would perfectly appeal to this specific group.
 2. DO NOT recommend existing films - invent new ones.
-3. Each description should be approximately 500 characters long.
-4. Write clean plot descriptions without introductory phrases like "Perfect for this group" or "Ideal film".
-5. Focus on plot, themes, characters, and story elements that would resonate with this group.
-6. Create diverse genres that complement each other as a viewing session.
-7. Ensure concepts are accessible and engaging.
+3. ONLY create fictional narrative films - NO documentaries, reality shows, or non-fiction content.
+4. Each description should be approximately 500 characters long.
+5. Write clean plot descriptions without introductory phrases like "Perfect for this group" or "Ideal film".
+6. Focus on fictional characters, dramatic story arcs, and narrative elements that would resonate with this group.
+7. Create diverse fictional genres that complement each other as a viewing session (Drama, Comedy, Thriller, Fantasy, Sci-Fi, Romance, etc.).
+8. Ensure concepts are accessible and engaging fictional stories.
 
 --- REQUIRED OUTPUT FORMAT ---
 You must respond with a valid JSON array containing exactly 3 objects. Each object must have these exact fields:
@@ -307,17 +308,24 @@ Respond only with the JSON array, no additional text.`
     console.log(`${llmCharacterizationCount === 0 ? 'Using psychological insights from quiz responses' : 'Using detailed characterizations'}`)
     console.log(`\n🚀 Calling Claude API with complete prompt...`)
 
+    // 🧹 Oczyść tekst z brzydkich znaków
+    const cleanPrompt = prompt
+      .replace(/[\uD800-\uDFFF]/g, '')  // Usuń problematyczne znaki
+      .replace(/[^\x20-\x7E\u00A0-\uFFFF]/g, '')  // Zostaw tylko bezpieczne
+      .trim()
+
     // Prepare the request body for the Claude API
     const claudeRequestBody = {
-      model: 'claude-sonnet-4-20250514',
+      model: 'claude-3-5-haiku-20241022',
       max_tokens: 1500,
       messages: [
         {
           role: 'user',
-          content: prompt
+          content: cleanPrompt
         }
       ]
     }
+
 
     // Call the Claude API
     const claudeResponse = await fetch('https://api.anthropic.com/v1/messages', {

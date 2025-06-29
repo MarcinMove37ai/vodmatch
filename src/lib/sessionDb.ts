@@ -1,4 +1,4 @@
-// lib/sessionDb.ts - WERSJA Z INTEGRACJĄ LLM CHARACTERIZATION I KONTROLĄ RELEASE INSIGHTS + MOVIE RECOMMENDATIONS
+// lib/sessionDb.ts - WERSJA Z INTEGRACJĄ LLM CHARACTERIZATION I KONTROLĄ RELEASE INSIGHTS + MOVIE RECOMMENDATIONS + MOVIE VECTOR SEARCH + FIX RACE CONDITION
 import { prisma } from './prisma'
 import { Prisma } from '@prisma/client'
 
@@ -48,6 +48,40 @@ export class SessionDatabase {
       }
     }
     throw new Error('Failed to generate unique session ID')
+  }
+
+  // 🆕 NOWA HELPER FUNKCJA: Sprawdza warunki i wywołuje vector search jeśli są spełnione
+  private async checkAndTriggerVectorSearch(sessionId: string): Promise<void> {
+    try {
+      // Sprawdź aktualne dane w bazie
+      const session = await prisma.session.findUnique({
+        where: { sessionId: sessionId.toUpperCase() },
+        select: {
+          llm_movies: true,
+          movie_preferences: true
+        }
+      })
+
+      if (!session) {
+        console.log(`⚠️ [Vector Search Check] Session not found: ${sessionId}`)
+        return
+      }
+
+      // Sprawdź czy oba warunki są spełnione
+      if (session.llm_movies && session.movie_preferences) {
+        console.log(`✅ [Vector Search Check] Both conditions met for ${sessionId} - triggering vector search`)
+        this.triggerMovieVectorSearch(sessionId).catch((error) => {
+          console.log(`⚠️ [Movie Vector Search] Failed for session ${sessionId}:`, error)
+        })
+      } else {
+        console.log(`⏳ [Vector Search Check] Conditions not met for ${sessionId}:`, {
+          llm_movies: !!session.llm_movies,
+          movie_preferences: !!session.movie_preferences
+        })
+      }
+    } catch (error) {
+      console.error(`❌ [Vector Search Check] Error for session ${sessionId}:`, error)
+    }
   }
 
   // 🆕 NOWA METODA: Wyzwalanie LLM characterization
@@ -103,7 +137,7 @@ export class SessionDatabase {
     }
   }
 
-  // 🎬 NOWA METODA: Wyzwalanie rekomendacji filmowych
+  // 🎬 ZAKTUALIZOWANA METODA: Wyzwalanie rekomendacji filmowych + sprawdzanie warunków vector search
   private async triggerMovieRecommendations(sessionId: string): Promise<void> {
     try {
       console.log(`🎬 [Movie Recommendations] Starting for session: ${sessionId}`)
@@ -126,6 +160,10 @@ export class SessionDatabase {
       if (result.success) {
         console.log(`✅ [Movie Recommendations] Success for session ${sessionId}: ${result.concepts?.length || 0} concepts generated`)
 
+        // 🆕 DODANE: Sprawdź warunki dla vector search po zapisie concepts
+        console.log(`🔍 [Movie Recommendations] Checking conditions for vector search...`)
+        this.checkAndTriggerVectorSearch(sessionId)
+
         // 🆕 BROADCAST: Powiadom klientów o dostępności rekomendacji filmowych
         try {
           await broadcastSessionUpdate(sessionId, 'movie_recommendations_ready')
@@ -139,6 +177,76 @@ export class SessionDatabase {
 
     } catch (error) {
       console.error(`❌ [Movie Recommendations] Failed for session ${sessionId}:`, error)
+    }
+  }
+
+  // 🔍 NOWA METODA: Wyzwalanie movie vector search
+  private async triggerMovieVectorSearch(sessionId: string): Promise<void> {
+    try {
+      console.log(`🔍 [Movie Vector Search] Starting for session: ${sessionId}`)
+
+      const baseUrl = process.env.NEXTAUTH_URL || process.env.VERCEL_URL || 'http://localhost:3000'
+      const response = await fetch(`${baseUrl}/api/movie-vector-search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId })
+      })
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error(`❌ [Movie Vector Search] HTTP error ${response.status}: ${errorText}`)
+        return
+      }
+
+      const result = await response.json()
+
+      if (result.success) {
+        console.log(`✅ [Movie Vector Search] Success for session ${sessionId}: ${result.totalMoviesFound || 0} movies found`)
+
+        // 🆕 BROADCAST: Powiadom klientów o dostępności wyników wyszukiwania
+        try {
+          await broadcastSessionUpdate(sessionId, 'movie_search_completed')
+          console.log(`📤 [Movie Vector Search] Broadcast sent for session ${sessionId}`)
+        } catch (broadcastError) {
+          console.log(`⚠️ [Movie Vector Search] Broadcast failed:`, broadcastError)
+        }
+      } else {
+        console.error(`❌ [Movie Vector Search] API error for session ${sessionId}:`, result.error)
+      }
+
+    } catch (error) {
+      console.error(`❌ [Movie Vector Search] Failed for session ${sessionId}:`, error)
+    }
+  }
+
+  // 🆕 NOWA HELPER FUNKCJA: Sprawdza warunki i wywołuje movie recommendations jeśli są spełnione
+  private async checkAndTriggerMovieRecommendations(sessionId: string): Promise<void> {
+    try {
+      // Sprawdź czy istnieje group_analysis
+      const session = await prisma.session.findUnique({
+        where: { sessionId: sessionId.toUpperCase() },
+        select: { group_analysis: true }
+      })
+
+      if (!session?.group_analysis) {
+        console.log(`⏳ [Movie Recommendations Check] No group analysis yet for ${sessionId}`)
+        return
+      }
+
+      // Sprawdź status social analysis
+      const socialProgress = await this.getSocialAnalysisProgress(sessionId)
+      const hasCompletedAnalysis = socialProgress.completed > 0 || socialProgress.failed > 0
+
+      if (hasCompletedAnalysis) {
+        console.log(`✅ [Movie Recommendations Check] Social analysis ready for ${sessionId} (${socialProgress.completed} completed, ${socialProgress.failed} failed) - triggering movie recommendations`)
+        this.triggerMovieRecommendations(sessionId).catch((error) => {
+          console.log(`⚠️ [Movie Recommendations] Failed for session ${sessionId}:`, error)
+        })
+      } else {
+        console.log(`⏳ [Movie Recommendations Check] Social analysis not ready for ${sessionId} (${socialProgress.pending} pending, ${socialProgress.in_progress} in progress)`)
+      }
+    } catch (error) {
+      console.error(`❌ [Movie Recommendations Check] Error for session ${sessionId}:`, error)
     }
   }
 
@@ -263,7 +371,7 @@ export class SessionDatabase {
     }
   }
 
-  // 🎬 NOWA METODA: Ustawienie preferencji filmowych
+  // 🎬 POPRAWIONA METODA: Ustawienie preferencji filmowych + sprawdzanie warunków przed triggerem
   async setMoviePreferences(sessionId: string, moviePreferences: { excludedGenres: string[], minImdbRating: number }): Promise<boolean> {
     try {
       await prisma.session.update({
@@ -273,6 +381,11 @@ export class SessionDatabase {
         }
       })
       console.log(`✅ Updated movie preferences for session ${sessionId}:`, moviePreferences)
+
+      // ✅ POPRAWKA: Sprawdź warunki przed triggerem zamiast bezpośredniego wywołania
+      console.log(`🔍 [Movie Preferences] Checking conditions for vector search...`)
+      this.checkAndTriggerVectorSearch(sessionId)
+
       return true
     } catch (error) {
       console.error(`❌ Error updating movie preferences for session ${sessionId}:`, error)
@@ -426,11 +539,9 @@ export class SessionDatabase {
       console.log(`📢 [Semantic Analysis] Triggering session broadcast after analysis completion for ${sessionId}`);
       await broadcastSessionUpdate(sessionId, 'analysis_completed');
 
-      // 🎬 NOWE: Automatyczne wyzwalanie rekomendacji filmowych po zapisaniu group_analysis
-      console.log(`🎬 [Semantic Analysis] Triggering movie recommendations for session ${sessionId}`);
-      this.triggerMovieRecommendations(sessionId).catch((error) => {
-        console.log(`⚠️ [Movie Recommendations] Failed for session ${sessionId}:`, error)
-      });
+      // 🎬 POPRAWIONE: Sprawdź warunki przed triggerem movie recommendations
+      console.log(`🔍 [Semantic Analysis] Checking conditions for movie recommendations...`);
+      this.checkAndTriggerMovieRecommendations(sessionId)
 
     } catch (error) {
       console.error(`❌ [Semantic Analysis] Background task failed for session ${sessionId}:`, error);
@@ -561,7 +672,7 @@ export class SessionDatabase {
     } catch (error) { return false }
   }
 
-  // 🆕 ZMODYFIKOWANA FUNKCJA: Automatyczne wyzwalanie LLM characterization
+  // 🆕 ZMODYFIKOWANA FUNKCJA: Automatyczne wyzwalanie LLM characterization + sprawdzanie movie recommendations
   async saveSocialAnalysisResults(profileId: number, postsData: string[], platform: 'instagram' | 'linkedin'): Promise<boolean> {
     try {
       const socialPostsData = { posts: postsData, metadata: { total_posts_analyzed: postsData.length, platform: platform, analyzed_at: new Date().toISOString() } }
@@ -572,6 +683,17 @@ export class SessionDatabase {
       this.triggerLLMCharacterization(profileId).catch((error) => {
         console.log(`⚠️ [LLM Characterization] Failed for profileId ${profileId}:`, error)
       })
+
+      // 🆕 DODANE: Sprawdź czy można uruchomić movie recommendations po zakończeniu social analysis
+      const profile = await prisma.sessionProfile.findUnique({
+        where: { id: profileId },
+        select: { sessionId: true }
+      })
+
+      if (profile) {
+        console.log(`🔍 [Social Analysis] Checking if movie recommendations can be triggered for session ${profile.sessionId}...`)
+        this.checkAndTriggerMovieRecommendations(profile.sessionId)
+      }
 
       return true
     } catch (error) { return false }

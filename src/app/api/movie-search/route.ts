@@ -33,6 +33,10 @@ interface MovieResult {
   sparse_score?: number;
   original_score?: number;
   normalized_score?: number;
+  // 🆕 NOWE POLA
+  imdb_id?: string | null;
+  type?: string | null;
+  img_url?: string | null;
 }
 
 interface MovieSearchResponse {
@@ -404,6 +408,7 @@ async function searchSparse(
 
 function parseResult(match: any, searchType: 'dense' | 'sparse'): MovieResult {
   const metadata = match.metadata || {};
+
   return {
     id: match.id,
     score: match.score,
@@ -417,6 +422,11 @@ function parseResult(match: any, searchType: 'dense' | 'sparse'): MovieResult {
     platform: metadata.platform || 'Unknown',
     runtime: metadata.runtime_minutes || 'N/A',
     content_rating: metadata.content_rating || 'N/A',
+
+    // 🆕 NOWE POLA - sprawdzamy różne możliwe nazwy
+    imdb_id: metadata.imdb_id || metadata.imdb_identifier || metadata.imdbId || metadata.movie_id || null,
+    type: metadata.type || metadata.content_type || metadata.movie_type || null,
+    img_url: metadata.img_url || metadata.image_url || metadata.poster_url || metadata.thumbnail || metadata.cover_image || metadata.poster || null
   };
 }
 
@@ -537,6 +547,17 @@ function mergeMovies(movies: MovieResult[]): MovieResult {
       }
     } catch (error) {
       // Ignore parsing errors
+    }
+
+    // 🆕 MERGE NOWYCH PÓL - zachowaj pierwsze dostępne
+    if (!baseMovie.imdb_id && movie.imdb_id) {
+      baseMovie.imdb_id = movie.imdb_id;
+    }
+    if (!baseMovie.type && movie.type) {
+      baseMovie.type = movie.type;
+    }
+    if (!baseMovie.img_url && movie.img_url) {
+      baseMovie.img_url = movie.img_url;
     }
   });
 
@@ -799,12 +820,17 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   return NextResponse.json({
     service: 'movie-search',
-    version: '3.4.0-typescript-fix',
-    description: 'Production-ready hybrid movie search API with TypeScript compatibility fixes for Pinecone sparse embeddings.',
+    version: '3.5.0-new-fields',
+    description: 'Production-ready hybrid movie search API with additional fields (imdb_id, type, img_url).',
     usage: {
       endpoint: 'POST /api/movie-search',
       required: ['query'],
       optional: ['top_k', 'available_platforms', 'excluded_genres', 'min_imdb_rating', 'min_year', 'max_year']
+    },
+    new_fields: {
+      imdb_id: 'string | null - IMDB identifier',
+      type: 'string | null - Content type (movie/series/etc)',
+      img_url: 'string | null - Poster/image URL'
     },
     config: {
       alpha_weighting: CONFIG.ALPHA,
@@ -817,27 +843,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       platforms: '?action=platforms',
       genres: '?action=genres',
       config: '?action=test-config'
-    },
-    fixes_applied: [
-      '✅ Implemented DYNAMIC sparse score normalization for fair hybrid search results',
-      '✅ Fixed namespace parameter - using chaining pattern (.namespace())',
-      '✅ Fixed camelCase parameters (topK, includeMetadata, includeValues)',
-      '✅ Fixed sparse embedding - using Pinecone inference API with pinecone-sparse-english-v0',
-      '✅ ELEGANTLY FIXED TypeScript sparse embedding property access with dedicated interfaces',
-      '✅ Added extractSparseData helper function for robust response parsing',
-      '✅ Enhanced debugging for sparse embedding structure analysis',
-      '✅ Removed @ts-ignore comments in favor of proper TypeScript types',
-      '✅ Optimized logging - concise output with essential debugging info',
-      '✅ Maintained partial search functionality if one method fails',
-      '✅ Fully compatible with Pinecone TypeScript SDK architecture',
-      '✅ Real sparse embeddings via Pinecone hosted model'
-    ],
-    production_ready: [
-      '🚀 Both dense and sparse embeddings use production-grade Pinecone APIs',
-      '🚀 No external dependencies or simulated data',
-      '🚀 Proper error handling and fallback mechanisms',
-      '🚀 Type-safe TypeScript implementation with proper interfaces',
-      '🚀 Robust sparse embedding response parsing for multiple API versions'
-    ]
+    }
   });
 }
