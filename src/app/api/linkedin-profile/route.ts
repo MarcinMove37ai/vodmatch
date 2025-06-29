@@ -115,27 +115,45 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
   }
 }
 
-// POPRAWIONA funkcja do wyciągania nazwy użytkownika z LinkedIn URL - obsługuje parametry query string
+// POPRAWIONA funkcja do wyciągania nazwy użytkownika z LinkedIn URL - obsługuje Unicode i zakodowane znaki
 function extractLinkedInUsername(url: string): string | null {
   try {
+    // Najpierw spróbuj zdekodować URL aby obsłużyć zakodowane znaki Unicode
+    let decodedUrl = url;
+    try {
+      decodedUrl = decodeURIComponent(url);
+      console.log('🔄 Decoded LinkedIn URL:', decodedUrl);
+    } catch (decodeError) {
+      console.log('⚠️ Could not decode URL, using original:', url);
+      // Jeśli dekodowanie się nie powiedzie, użyj oryginalnego URL
+    }
+
     // Usuń wszystko po symbolu ? (parametry query string) oraz fragment (#)
-    const cleanUrl = url.split('?')[0].split('#')[0];
+    const cleanUrl = decodedUrl.split('?')[0].split('#')[0];
 
     console.log('🔍 Original LinkedIn URL:', url);
+    console.log('🔄 Decoded LinkedIn URL:', decodedUrl);
     console.log('🧹 Cleaned LinkedIn URL:', cleanUrl);
 
+    // POPRAWIONE wzorce - bardziej liberalne, akceptują znaki Unicode
     const patterns: RegExp[] = [
-      /linkedin\.com\/in\/([a-zA-Z0-9._-]+)\/?$/,
-      /linkedin\.com\/in\/([a-zA-Z0-9._-]+)\/$/,
-      /linkedin\.com\/in\/([a-zA-Z0-9._-]+)$/,
+      /linkedin\.com\/in\/([^\/\s?#]+)\/?$/,
+      /linkedin\.com\/in\/([^\/\s?#]+)\/$/,
+      /linkedin\.com\/in\/([^\/\s?#]+)$/,
     ];
 
     for (const pattern of patterns) {
       const match = cleanUrl.match(pattern);
       if (match && match[1]) {
         const extractedUsername = match[1].replace(/\/$/, '');
-        console.log('✅ LinkedIn username extracted:', extractedUsername);
-        return extractedUsername;
+
+        // Dodatkowa walidacja - sprawdź czy username nie jest zbyt krótki lub nieprawidłowy
+        if (extractedUsername.length >= 1 && extractedUsername !== 'www') {
+          console.log('✅ LinkedIn username extracted:', extractedUsername);
+          return extractedUsername;
+        } else {
+          console.log('❌ Invalid username extracted:', extractedUsername);
+        }
       }
     }
 

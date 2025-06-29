@@ -40,6 +40,21 @@ function validateMovieRecommendations(data: unknown): MovieRecommendation[] | nu
   }
 }
 
+// Helper function to clean engagingFeedback text
+function cleanEngagingFeedback(feedback: string): string {
+  return feedback
+    // Remove emojis and special characters
+    .replace(/[🎭🎬✨📊🎯🔮🌟💫🎪🎨🎵🎭🎪🎨🎭🎬✨📊🎮🎸🎺🎼🎹🎻🥁🎧🎤🎵🎶🎙️🎚️🎛️🔊🔉🔈📢📣📯🔔🔕🎼🎵🎶🎧🎤🎸🥁🎺🎻🎹🎷🪘🪗🪕🪖]/g, '')
+    // Remove multiple newlines
+    .replace(/\n\n+/g, ' ')
+    // Replace single newlines with spaces
+    .replace(/\n/g, ' ')
+    // Replace multiple spaces with single space
+    .replace(/\s+/g, ' ')
+    // Trim whitespace
+    .trim()
+}
+
 export async function POST(request: NextRequest) {
   try {
     console.log('🎬 Film Concept Generator: Starting request processing')
@@ -123,47 +138,106 @@ export async function POST(request: NextRequest) {
 
     console.log(`📝 Extracted semanticDescription (${semanticDescription.length} chars)`)
 
-    // Fetch all participant characterizations for this session
+    // 🆕 NEW: Fetch profiles based on social analysis completion
     const profiles = await prisma.sessionProfile.findMany({
       where: {
         sessionId: sessionId.toUpperCase(),
-        llm_characterization: { not: null }
+        social_analysis_status: { in: ['completed', 'failed'] }
       },
       select: {
         userId: true,
         username: true,
         llm_characterization: true,
+        individual_analysis: true,
+        social_analysis_status: true,
         isAdmin: true
       }
     })
 
     if (profiles.length === 0) {
-      console.log(`⚠️ No participant characterizations found for session: ${sessionId}`)
+      console.log(`⚠️ No participants with completed social analysis found for session: ${sessionId}`)
       return NextResponse.json({
         success: false,
-        error: 'No participant characterizations available'
+        error: 'No participants with completed analysis available'
       }, { status: 400 })
     }
 
-    console.log(`👥 Found ${profiles.length} participant characterizations`)
+    console.log(`👥 Found ${profiles.length} participants with completed social analysis`)
 
-    // Filter out "insufficient data" characterizations and prepare participant descriptions
-    const validCharacterizations = profiles
-      .filter(profile =>
-        profile.llm_characterization &&
-        profile.llm_characterization !== 'insufficient data'
-      )
-      .map(profile => profile.llm_characterization)
+    // 🆕 NEW: Enhanced participant description logic with fallback
+    const participantDescriptions: string[] = []
+    let llmCharacterizationCount = 0
+    let engagingFeedbackCount = 0
 
-    if (validCharacterizations.length === 0) {
-      console.log(`⚠️ No valid characterizations found for session: ${sessionId}`)
+    console.log(`\n🔍 DETAILED DATA ANALYSIS FOR EACH PARTICIPANT:`)
+    console.log(`================================================`)
+
+    profiles.forEach((profile, index) => {
+      let description = ''
+      const participantNumber = index + 1
+
+      // Log available data for this participant
+      console.log(`\n👤 PARTICIPANT ${participantNumber} (@${profile.username}):`)
+      console.log(`  - Social Analysis Status: ${profile.social_analysis_status}`)
+      console.log(`  - LLM Characterization: ${profile.llm_characterization ? (profile.llm_characterization === 'insufficient data' ? 'INSUFFICIENT DATA' : `YES (${profile.llm_characterization.length} chars)`) : 'NO'}`)
+      console.log(`  - Individual Analysis: ${profile.individual_analysis ? 'YES' : 'NO'}`)
+
+      const hasEngagingFeedback = profile.individual_analysis &&
+                                  typeof profile.individual_analysis === 'object' &&
+                                  (profile.individual_analysis as any).engagingFeedback
+      console.log(`  - Engaging Feedback: ${hasEngagingFeedback ? `YES (${(profile.individual_analysis as any).engagingFeedback.length} chars)` : 'NO'}`)
+
+      // First priority: llm_characterization (if available and valid)
+      if (profile.llm_characterization &&
+          profile.llm_characterization !== 'insufficient data' &&
+          profile.llm_characterization.trim() !== '') {
+        description = profile.llm_characterization
+        llmCharacterizationCount++
+        console.log(`  ✅ SELECTED: LLM Characterization`)
+      }
+      // Second priority: engagingFeedback from individual_analysis
+      else if (hasEngagingFeedback) {
+        const rawFeedback = (profile.individual_analysis as any).engagingFeedback
+        description = cleanEngagingFeedback(rawFeedback)
+        engagingFeedbackCount++
+        console.log(`  ✅ SELECTED: Cleaned Engaging Feedback`)
+        console.log(`    - Raw feedback length: ${rawFeedback.length} chars`)
+        console.log(`    - Cleaned length: ${description.length} chars`)
+      }
+      // Fallback: basic info
+      else {
+        description = `Quiz participant: @${profile.username}`
+        console.log(`  ⚠️ SELECTED: Basic fallback (no rich data available)`)
+      }
+
+      // Log the final description being used
+      console.log(`  📤 FINAL DESCRIPTION (${description.length} chars):`)
+      if (description.length > 200) {
+        console.log(`    "${description.substring(0, 150)}..." [TRUNCATED]`)
+      } else {
+        console.log(`    "${description}"`)
+      }
+
+      participantDescriptions.push(`Participant ${participantNumber}: ${description}`)
+    })
+
+    console.log(`\n📊 DATA SOURCE SUMMARY:`)
+    console.log(`========================`)
+    console.log(`- LLM Characterizations: ${llmCharacterizationCount}`)
+    console.log(`- Engaging Feedback: ${engagingFeedbackCount}`)
+    console.log(`- Basic Fallback: ${participantDescriptions.length - llmCharacterizationCount - engagingFeedbackCount}`)
+    console.log(`- Total Participants: ${participantDescriptions.length}`)
+
+    // Check if we have any meaningful descriptions
+    if (participantDescriptions.length === 0) {
+      console.log(`❌ No participant descriptions could be generated for session: ${sessionId}`)
       return NextResponse.json({
         success: false,
-        error: 'No valid participant characterizations available'
+        error: 'No participant descriptions available'
       }, { status: 400 })
     }
 
-    console.log(`✅ Using ${validCharacterizations.length} valid characterizations`)
+    console.log(`✅ Generated descriptions: ${llmCharacterizationCount} from LLM characterization, ${engagingFeedbackCount} from engaging feedback`)
 
     // Check for the API key
     const claudeApiKey = process.env.CLAUDE_API_KEY
@@ -176,11 +250,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Prepare the prompt for Claude API
-    const participantDescriptions = validCharacterizations
-      .map((char, index) => `Participant ${index + 1}: ${char}`)
-      .join('\n\n')
-
-    console.log(`🧠 Sending request to Claude for film concept generation`)
+    const participantDescriptionsText = participantDescriptions.join('\n\n')
 
     const prompt = `You are a creative film concept generator. Your task is to analyze the provided group characteristics and participant descriptions, then create exactly 3 original film descriptions that would perfectly match this group's preferences and dynamics.
 
@@ -188,10 +258,15 @@ export async function POST(request: NextRequest) {
 ${semanticDescription}
 
 --- PARTICIPANT DESCRIPTIONS ---
-${participantDescriptions}
+${participantDescriptionsText}
+
+${llmCharacterizationCount === 0 ?
+  '--- NOTE ---\nParticipant descriptions are based on psychological insights from quiz responses rather than detailed social profiles.\n' :
+  ''
+}
 
 --- INSTRUCTIONS ---
-1. Based on the group dynamics and individual characteristics, CREATE 3 original film concepts that would perfectly appeal to this specific group.
+1. Based on the group dynamics and ${llmCharacterizationCount > 0 ? 'individual characteristics' : 'psychological insights'}, CREATE 3 original film concepts that would perfectly appeal to this specific group.
 2. DO NOT recommend existing films - invent new ones.
 3. Each description should be approximately 500 characters long.
 4. Write clean plot descriptions without introductory phrases like "Perfect for this group" or "Ideal film".
@@ -217,6 +292,20 @@ Example format:
 ]
 
 Respond only with the JSON array, no additional text.`
+
+    console.log(`🧠 Sending request to Claude for film concept generation`)
+
+    // Log the complete prompt being sent to Claude
+    console.log(`\n📋 COMPLETE PROMPT BEING SENT TO CLAUDE:`)
+    console.log(`=========================================`)
+    console.log(`Prompt length: ${prompt.length} characters`)
+    console.log(`\n--- SEMANTIC DESCRIPTION SECTION ---`)
+    console.log(`${semanticDescription.substring(0, 300)}${semanticDescription.length > 300 ? '...' : ''}`)
+    console.log(`\n--- PARTICIPANT DESCRIPTIONS SECTION ---`)
+    console.log(`${participantDescriptionsText.substring(0, 500)}${participantDescriptionsText.length > 500 ? '...' : ''}`)
+    console.log(`\n--- DATA SOURCE NOTE ---`)
+    console.log(`${llmCharacterizationCount === 0 ? 'Using psychological insights from quiz responses' : 'Using detailed characterizations'}`)
+    console.log(`\n🚀 Calling Claude API with complete prompt...`)
 
     // Prepare the request body for the Claude API
     const claudeRequestBody = {
@@ -253,6 +342,13 @@ Respond only with the JSON array, no additional text.`
     // Extract and parse the recommendations from the response
     const rawRecommendations = claudeData.content?.[0]?.text?.trim() || '[]'
 
+    console.log(`\n📥 CLAUDE API RESPONSE:`)
+    console.log(`======================`)
+    console.log(`Response length: ${rawRecommendations.length} characters`)
+    console.log(`Raw response preview:`)
+    console.log(`${rawRecommendations.substring(0, 300)}${rawRecommendations.length > 300 ? '...' : ''}`)
+    console.log(`\n🔍 Parsing JSON response...`)
+
     let recommendations: MovieRecommendation[]
     try {
       recommendations = JSON.parse(rawRecommendations)
@@ -280,9 +376,14 @@ Respond only with the JSON array, no additional text.`
     }
 
     console.log(`🎬 Generated ${recommendations.length} original film concepts`)
+    console.log(`\n🎭 GENERATED FILM CONCEPTS:`)
+    console.log(`===========================`)
     recommendations.forEach((rec, index) => {
-      console.log(`  ${index + 1}. ${rec.genre}: ${rec.description.substring(0, 60)}...`)
+      console.log(`\n${index + 1}. GENRE: ${rec.genre}`)
+      console.log(`   LENGTH: ${rec.description.length} characters`)
+      console.log(`   DESCRIPTION: ${rec.description}`)
     })
+    console.log(`\n💾 Saving concepts to database...`)
 
     // Save recommendations to the database - convert to Prisma JSON format
     await prisma.session.update({
@@ -294,11 +395,26 @@ Respond only with the JSON array, no additional text.`
 
     console.log(`✅ Film concepts saved to database for session: ${sessionId}`)
 
+    console.log(`\n🎯 PROCESS COMPLETED SUCCESSFULLY:`)
+    console.log(`==================================`)
+    console.log(`- Session: ${sessionId}`)
+    console.log(`- Participants analyzed: ${participantDescriptions.length}`)
+    console.log(`- Data sources: ${llmCharacterizationCount} LLM + ${engagingFeedbackCount} Feedback + ${participantDescriptions.length - llmCharacterizationCount - engagingFeedbackCount} Fallback`)
+    console.log(`- Concepts generated: ${recommendations.length}`)
+    console.log(`- Total prompt length: ${prompt.length} chars`)
+    console.log(`- Claude response length: ${rawRecommendations.length} chars`)
+    console.log(`🚀 Ready to return response to client`)
+
     return NextResponse.json({
       success: true,
       sessionId: sessionId,
       concepts: recommendations,
-      participantsAnalyzed: validCharacterizations.length,
+      participantsAnalyzed: participantDescriptions.length,
+      dataSourceBreakdown: {
+        llmCharacterizations: llmCharacterizationCount,
+        engagingFeedback: engagingFeedbackCount,
+        fallback: participantDescriptions.length - llmCharacterizationCount - engagingFeedbackCount
+      },
       groupCharacteristics: semanticDescription.substring(0, 100) + '...'
     })
 

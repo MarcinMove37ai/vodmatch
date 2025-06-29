@@ -22,12 +22,23 @@ export default function SocialProfileInput({ onContinue, showContent = true }: S
   // [ZMIANA] Ref do śledzenia, czy API zakończyło pracę. To pozwoli przerwać powolną animację.
   const apiCallCompleted = useRef(false);
 
-  // POPRAWIONA funkcja detectPlatform - obsługuje parametry query string i filtruje nieprawidłowe linki
-  const detectPlatform = (url: string): 'instagram' | 'linkedin' | null => {
+  // POPRAWIONA funkcja detectPlatform - obsługuje Unicode i zakodowane znaki
+const detectPlatform = (url: string): 'instagram' | 'linkedin' | null => {
+  try {
+    // Dekoduj URL aby obsłużyć zakodowane znaki Unicode
+    let decodedUrl = url;
+    try {
+      decodedUrl = decodeURIComponent(url);
+    } catch (e) {
+      // Jeśli dekodowanie się nie powiedzie, użyj oryginalnego URL
+      console.log('⚠️ Could not decode URL, using original:', url);
+    }
+
     // Usuń parametry query string dla czystszego dopasowania
-    const cleanUrl = url.split('?')[0].split('#')[0].toLowerCase();
+    const cleanUrl = decodedUrl.split('?')[0].split('#')[0].toLowerCase();
 
     console.log('🔍 Detecting platform for URL:', url);
+    console.log('🔄 Decoded URL:', decodedUrl);
     console.log('🧹 Cleaned URL for detection:', cleanUrl);
 
     // Instagram - sprawdź czy to link do profilu (nie do posta, reel-a itp.)
@@ -37,11 +48,15 @@ export default function SocialProfileInput({ onContinue, showContent = true }: S
       const hasExcludedPath = excludedPaths.some(path => cleanUrl.includes(path));
 
       if (!hasExcludedPath) {
-        // Sprawdź czy ma format profilu: instagram.com/username
-        const profileMatch = cleanUrl.match(/instagram\.com\/([a-zA-Z0-9._]+)\/?$/);
-        if (profileMatch) {
-          console.log('✅ Detected Instagram profile for username:', profileMatch[1]);
-          return 'instagram';
+        // POPRAWIONY regex - bardziej liberalny, akceptuje więcej znaków
+        const profileMatch = cleanUrl.match(/instagram\.com\/([^\/\s?#]+)\/?$/);
+        if (profileMatch && profileMatch[1]) {
+          const username = profileMatch[1];
+          // Dodatkowa walidacja - sprawdź czy username nie jest zbyt krótki
+          if (username.length >= 1 && username !== 'www') {
+            console.log('✅ Detected Instagram profile for username:', username);
+            return 'instagram';
+          }
         }
       } else {
         console.log('❌ Instagram URL excluded - contains post/reel/story path');
@@ -50,16 +65,25 @@ export default function SocialProfileInput({ onContinue, showContent = true }: S
 
     // LinkedIn - sprawdź czy to link do profilu
     if (cleanUrl.includes('linkedin.com/in/')) {
-      const profileMatch = cleanUrl.match(/linkedin\.com\/in\/([a-zA-Z0-9._-]+)\/?$/);
-      if (profileMatch) {
-        console.log('✅ Detected LinkedIn profile for username:', profileMatch[1]);
-        return 'linkedin';
+      // POPRAWIONY regex - bardziej liberalny, akceptuje znaki Unicode
+      const profileMatch = cleanUrl.match(/linkedin\.com\/in\/([^\/\s?#]+)\/?$/);
+      if (profileMatch && profileMatch[1]) {
+        const username = profileMatch[1];
+        // Dodatkowa walidacja - sprawdź czy username nie jest zbyt krótki
+        if (username.length >= 1) {
+          console.log('✅ Detected LinkedIn profile for username:', username);
+          return 'linkedin';
+        }
       }
     }
 
     console.log('❌ No valid platform detected');
     return null;
+  } catch (error) {
+    console.error('❌ Error in detectPlatform:', error);
+    return null;
   }
+}
 
   const formatNumber = (num: number | null): string => {
     if (num === null) return 'N/A'
