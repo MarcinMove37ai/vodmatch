@@ -21,14 +21,12 @@ model Session {
   status      String @default("setup") @db.VarChar(20)
   currentStep String @default("platforms") @map("current_step") @db.VarChar(50)
 
-  // ‼️ KROK 1: Dodana kolumna na wyniki analizy grupowej
   group_analysis Json? @map("group_analysis")
-
-  // 🎬 NOWA KOLUMNA: Preferencje filmowe ustawione przez zwycięzcę
   movie_preferences Json? @map("movie_preferences")
-
-  // 🎬 NOWA KOLUMNA: Koncepty filmów wygenerowane przez LLM
   llm_movies Json? @map("llm_movies")
+
+  // ✅ KROK 1: Dodana kolumna do śledzenia indeksu filmu w sesji Tinder
+  movieTinderIndex Int? @default(0) @map("movie_tinder_index")
 
   // Relacje
   profiles     SessionProfile[]
@@ -49,17 +47,16 @@ model SessionProfile {
   quiz_result Json?   @map("quiz_result") @default("{}")
   seen        String[] @default([])
 
-  // Pola Social Media Analysis (bez zmian)
   social_posts           Json?     @map("social_posts")
   social_analysis_status String?   @map("social_analysis_status") @db.VarChar(20)
   social_analysis_error  String?   @map("social_analysis_error") @db.Text
   social_analyzed_at     DateTime? @map("social_analyzed_at")
 
-  // ‼️ ZWIĘKSZONY LIMIT: Charakterystyka LLM (600 znaków)
   llm_characterization String? @map("llm_characterization") @db.VarChar(600)
-
-  // ‼️ KROK 1: Dodana kolumna na wyniki analizy indywidualnej
   individual_analysis Json? @map("individual_analysis")
+
+  // ✅ KROK 1: Dodana kolumna na wybory filmów przez użytkownika
+  picks Json? @map("picks")
 
   // Metadane
   isAdmin     Boolean  @default(false) @map("is_admin")
@@ -76,11 +73,10 @@ model SessionProfile {
 model SessionMovieResult {
   id                 Int      @id @default(autoincrement())
   sessionId          String   @map("session_id") @db.VarChar(6)
-  queryNumber        Int      @map("query_number") // 1, 2, lub 3
+  queryNumber        Int      @map("query_number")
   conceptGenre       String   @map("concept_genre") @db.VarChar(50)
   conceptDescription String   @map("concept_description") @db.Text
 
-  // Dane filmu z vector search
   movieId            String   @map("movie_id")
   movieTitle         String   @map("movie_title")
   movieDescription   String   @map("movie_description") @db.Text
@@ -88,18 +84,16 @@ model SessionMovieResult {
   movieGenres        String   @map("movie_genres")
   movieDirectors     String   @map("movie_directors")
   movieImdbRating    String   @map("movie_imdb_rating")
-  moviePlatform      Json     @map("movie_platform") // array lub string
+  moviePlatform      Json     @map("movie_platform")
   movieRuntime       String   @map("movie_runtime")
   movieContentRating String   @map("movie_content_rating")
 
-  // 🆕 NOWE POLA z movie-search
   movieImdbId        String?  @map("movie_imdb_id")
   movieType          String?  @map("movie_type") @db.VarChar(50)
   movieImgUrl        String?  @map("movie_img_url") @db.Text
 
-  // Meta dane search
   searchScore        Float    @map("search_score")
-  searchType         String   @map("search_type") // dense/sparse/hybrid/merged_*
+  searchType         String   @map("search_type")
   hybridScore        Float?   @map("hybrid_score")
   denseScore         Float?   @map("dense_score")
   sparseScore        Float?   @map("sparse_score")
@@ -107,10 +101,8 @@ model SessionMovieResult {
 
   createdAt          DateTime @default(now()) @map("created_at")
 
-  // Relacja do Session
   session            Session  @relation(fields: [sessionId], references: [sessionId], onDelete: Cascade)
 
-  // Indeksy
   @@index([sessionId])
   @@index([sessionId, queryNumber])
   @@map("session_movie_results")

@@ -1,4 +1,4 @@
-// src/components/WaitingForResultsScreen.tsx - WERSJA Z PRZYWRÓCONYM ORYGINALNYM STYLEM NAGŁÓWKA + MOVIE SEARCH
+// src/components/WaitingForResultsScreen.tsx
 'use client'
 
 import { useMemo, useState, useEffect } from 'react'
@@ -19,8 +19,8 @@ interface WaitingForResultsScreenProps {
   onRefreshSession: () => Promise<void>
   releaseInsights?: () => Promise<boolean>
   onSetMoviePreferences?: () => void
-  movieSearchCompleted?: boolean  // 🆕 NOWY PROP
-  onFindMovies?: () => void       // 🆕 NOWY PROP
+  movieSearchCompleted?: boolean
+  onFindMovies?: () => void
 }
 
 interface RankedParticipant {
@@ -45,8 +45,8 @@ export default function WaitingForResultsScreen({
   onRefreshSession,
   releaseInsights,
   onSetMoviePreferences,
-  movieSearchCompleted = false,  // 🆕 NOWY PROP
-  onFindMovies                   // 🆕 NOWY PROP
+  movieSearchCompleted = false,
+  onFindMovies
 }: WaitingForResultsScreenProps) {
   const isConnected = realTimeConnected
   const isSoloMode = session?.viewingMode === 'solo'
@@ -57,7 +57,6 @@ export default function WaitingForResultsScreen({
 
   const [isReleasingInsights, setIsReleasingInsights] = useState(false)
 
-  // 🆕 NOWA LOGIKA: Sprawdza stan wyszukiwania filmów
   const movieSearchState = useMemo(() => {
     const hasPreferences = !!session?.movie_preferences
     const hasResults = movieSearchCompleted || !!session?.movie_search_results || !!session?.llm_movies
@@ -163,6 +162,8 @@ export default function WaitingForResultsScreen({
     visible: { opacity: 1, y: 0, transition: { duration: 0.5 } },
   }
 
+  const isActionTaker = isSoloMode || currentUserAnalysis?.rank === 1;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 via-black to-purple-900 relative overflow-hidden">
       <div className="absolute inset-0 bg-[url('/grid.svg')] bg-center [mask-image:linear-gradient(180deg,white,rgba(255,255,255,0))]"></div>
@@ -175,7 +176,6 @@ export default function WaitingForResultsScreen({
         >
           <div className="space-y-6">
             <AnimatePresence mode="wait">
-              {/* === ZMIANA: Przywrócenie oryginalnego wyglądu nagłówków === */}
               {(resultsPhase === 'showing_insights' || resultsPhase === 'awaiting_winner_action') ? (
                 <motion.div
                   key="insights-header"
@@ -208,14 +208,12 @@ export default function WaitingForResultsScreen({
 
             <motion.div layout transition={{ layout: { duration: 0.5, type: 'spring' } }}>
               <AnimatePresence mode="wait">
-                {/* === FAZA KOŃCOWA: INSIGHTY I AKCJA ZWYCIĘZCY === */}
                 {(resultsPhase === 'showing_insights' || resultsPhase === 'awaiting_winner_action') ? (
                   <motion.div
                     key="final-phase-container"
                     variants={containerVariants}
                     className="space-y-4"
                   >
-                    {/* 1. Karta z insightami personalnymi */}
                     {currentUserAnalysis?.individual_analysis && (
                       <motion.div variants={itemVariants}>
                         <ParticipantInsightCard
@@ -226,93 +224,92 @@ export default function WaitingForResultsScreen({
                       </motion.div>
                     )}
 
-                    {/* Ten blok pojawia się dopiero po zniknięciu animacji insightów */}
                     {resultsPhase === 'awaiting_winner_action' && (
                       <>
-                        {/* 2. Przycisk bonusu LUB panel preferencji */}
-                        {!session?.movie_preferences ? (
-                          <motion.div variants={itemVariants} className="pt-4">
-                             {isSoloMode ? (
-                                <motion.div key="solo-bonus" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="text-center">
-                                  <button onClick={handleSetMoviePreferences} className="bg-gradient-to-r from-purple-500 to-violet-600 text-white font-bold py-3 px-8 rounded-lg shadow-lg shadow-purple-500/25 hover:shadow-violet-500/30 hover:brightness-110 transition-all duration-300 flex items-center justify-center mx-auto space-x-2.5">
-                                    <Sparkles className="w-5 h-5" /><span>Set Preferences</span>
-                                  </button>
-                                </motion.div>
-                              ) : currentUserAnalysis?.rank === 1 && (
-                                <motion.div key="winner-bonus" initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="text-center">
-                                  <button onClick={handleSetMoviePreferences} className="bg-gradient-to-r from-amber-500 to-orange-500 text-white font-bold py-3 px-8 rounded-lg shadow-lg shadow-amber-500/25 hover:shadow-orange-500/30 hover:brightness-110 transition-all duration-300 flex items-center justify-center mx-auto space-x-2.5">
-                                    <Crown className="w-5 h-5" /><span>Winner's Bonus</span>
-                                  </button>
-                                </motion.div>
-                              )}
-                          </motion.div>
-                        ) : (
-                          <motion.div variants={itemVariants} className="p-4 sm:p-5 rounded-2xl bg-gray-900/40 border border-amber-700/30 backdrop-blur-sm space-y-4">
-                             <div className="flex items-center space-x-3">
-                              <Crown className="w-5 h-5 text-amber-400 flex-shrink-0" />
-                              <h3 className="text-lg text-white font-light">Winner's Preferences</h3>
-                            </div>
-                            <div className="space-y-2 text-sm text-gray-300 pl-8 border-l border-dashed border-gray-700 ml-2.5">
-                              <div className="flex items-center space-x-2">
-                                <XCircle className="w-4 h-4 text-red-400/80"/>
-                                <span>Exclude: {session.movie_preferences.excludedGenres.join(', ')}</span>
-                              </div>
-                              <div className="flex items-center space-x-2">
-                                <Star className="w-4 h-4 text-yellow-400/80"/>
-                                <span>Min. IMDB: {session.movie_preferences.minImdbRating}/10</span>
-                              </div>
-                            </div>
-                          </motion.div>
-                        )}
-
-                        {/* 3. Status/Akcja poniżej */}
-                        <motion.div variants={itemVariants} className="pt-4">
-                          {!isAdmin ? (
-                            session?.movie_preferences ? (
-                              <div className="flex items-center justify-center text-center text-gray-400 text-sm space-x-3">
-                                <div className="w-5 h-5 border-2 border-blue-500/50 border-t-blue-500 rounded-full animate-spin"></div>
-                                <p>Waiting for Host to find movies...</p>
-                              </div>
-                            ) : currentUserAnalysis?.rank !== 1 && (
-                               <div className="flex items-center justify-center text-center text-gray-500 text-sm space-x-3">
+                        {!session?.movie_preferences && (
+                          <div className="pt-4">
+                            {isActionTaker ? (
+                              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="text-center">
+                                <button
+                                  onClick={handleSetMoviePreferences}
+                                  className={`font-bold py-3 px-8 rounded-lg shadow-lg transition-all duration-300 flex items-center justify-center mx-auto space-x-2.5
+                                    ${isSoloMode
+                                      ? 'bg-gradient-to-r from-purple-500 to-violet-600 text-white shadow-purple-500/25 hover:shadow-violet-500/30 hover:brightness-110'
+                                      : 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-amber-500/25 hover:shadow-orange-500/30 hover:brightness-110'
+                                    }`}
+                                >
+                                  {isSoloMode ? <Sparkles className="w-5 h-5" /> : <Crown className="w-5 h-5" />}
+                                  <span>{isSoloMode ? 'Set Preferences' : 'Winner\'s Bonus'}</span>
+                                </button>
+                              </motion.div>
+                            ) : (
+                              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center justify-center text-center text-gray-500 text-sm space-x-3">
                                 <div className="w-5 h-5 border-2 border-gray-600 border-t-gray-400 rounded-full animate-spin"></div>
                                 <p>Waiting for Winner's preferences...</p>
+                              </motion.div>
+                            )}
+                          </div>
+                        )}
+
+                        {!!session?.movie_preferences && (
+                          <>
+                            <motion.div variants={itemVariants} className="p-4 sm:p-5 rounded-2xl bg-gray-900/40 border border-amber-700/30 backdrop-blur-sm space-y-4">
+                              <div className="flex items-center space-x-3">
+                                <Crown className="w-5 h-5 text-amber-400 flex-shrink-0" />
+                                <h3 className="text-lg text-white font-light">Winner's Preferences</h3>
                               </div>
-                            )
-                          ) : (
-                            session?.movie_preferences && (() => {
-                              switch (movieSearchState) {
-                                case 'searching':
-                                  return (
-                                    <div className="flex items-center justify-center text-center text-blue-400 text-sm space-x-3">
-                                      <div className="w-5 h-5 border-2 border-blue-400/50 border-t-blue-400 rounded-full animate-spin"></div>
-                                      <p>Searching for perfect movies...</p>
-                                    </div>
-                                  )
-                                case 'completed':
-                                  return (
-                                    <button
-                                      onClick={onFindMovies}
-                                      className="w-full bg-gradient-to-r from-emerald-500 to-green-500 text-white font-bold py-3 px-6 rounded-lg shadow-lg shadow-emerald-500/25 hover:shadow-green-500/30 hover:brightness-110 transition-all duration-300 flex items-center justify-center space-x-2.5 group"
-                                    >
-                                      <Film className="w-5 h-5 group-hover:scale-110 transition-transform"/>
-                                      <span>View Movies</span>
-                                      <div className="w-2 h-2 bg-emerald-300 rounded-full animate-pulse"></div>
-                                    </button>
-                                  )
-                                default:
-                                  return null
-                              }
-                            })()
-                          )}
-                        </motion.div>
+                              <div className="space-y-2 text-sm text-gray-300 pl-8 border-l border-dashed border-gray-700 ml-2.5">
+                                <div className="flex items-center space-x-2">
+                                  <XCircle className="w-4 h-4 text-red-400/80"/>
+                                  <span>Exclude: {session.movie_preferences.excludedGenres.join(', ')}</span>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                  <Star className="w-4 h-4 text-yellow-400/80"/>
+                                  <span>Min. IMDB: {session.movie_preferences.minImdbRating}/10</span>
+                                </div>
+                              </div>
+                            </motion.div>
+
+                            <motion.div variants={itemVariants} className="pt-4">
+                              {isAdmin ? (
+                                (() => {
+                                  switch (movieSearchState) {
+                                    case 'searching':
+                                      return (
+                                        <div className="flex items-center justify-center text-center text-blue-400 text-sm space-x-3">
+                                          <div className="w-5 h-5 border-2 border-blue-400/50 border-t-blue-400 rounded-full animate-spin"></div>
+                                          <p>Searching for perfect movies...</p>
+                                        </div>
+                                      )
+                                    case 'completed':
+                                      return (
+                                        <button
+                                          onClick={onFindMovies}
+                                          className="w-full bg-gradient-to-r from-emerald-500 to-green-500 text-white font-bold py-3 px-6 rounded-lg shadow-lg shadow-emerald-500/25 hover:shadow-green-500/30 hover:brightness-110 transition-all duration-300 flex items-center justify-center space-x-2.5 group"
+                                        >
+                                          <Film className="w-5 h-5 group-hover:scale-110 transition-transform"/>
+                                          <span>View Movies</span>
+                                          <div className="w-2 h-2 bg-emerald-300 rounded-full animate-pulse"></div>
+                                        </button>
+                                      )
+                                    default:
+                                      return null
+                                  }
+                                })()
+                              ) : (
+                                <div className="flex items-center justify-center text-center text-gray-400 text-sm space-x-3">
+                                  <div className="w-5 h-5 border-2 border-blue-500/50 border-t-blue-500 rounded-full animate-spin"></div>
+                                  <p>Waiting for Host to find movies...</p>
+                                </div>
+                              )}
+                            </motion.div>
+                          </>
+                        )}
                       </>
                     )}
                   </motion.div>
 
                 ) : (
-
-                  // === FAZY WCZEŚNIEJSZE: RANKING, ANALIZA, OCZEKIWANIE ===
                   <motion.div key="early-phases-container" variants={containerVariants} className="space-y-4">
                     {resultsPhase === 'ranking_only' && rankedParticipants.find(p => p.userId === userId)?.hasCompleted && (
                       <motion.div variants={itemVariants} className="p-5 rounded-2xl bg-gray-900/40 border border-amber-700/30 backdrop-blur-sm space-y-3 text-center">

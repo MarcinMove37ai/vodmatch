@@ -1,4 +1,4 @@
-// src/hooks/useSession.ts - WERSJA Z POPRAWIONYM ZWRACANIEM DANYCH I RELEASE INSIGHTS
+// src/hooks/useSession.ts
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
@@ -19,7 +19,6 @@ interface QuizAnswer {
   timeSpent: number
 }
 
-// 🎬 NOWY TYP: Movie preferences
 interface MoviePreferences {
   excludedGenres: string[]
   minImdbRating: number
@@ -35,7 +34,6 @@ interface UseSessionReturn {
   clearSession: () => void
   updatePlatforms: (platforms: StreamingPlatform[]) => Promise<boolean>
   updateMode: (mode: ViewingMode) => Promise<boolean>
-  // ZMIANA SYGNATURY: Zwraca obiekt sesji lub null
   updateAdminProfile: (socialProfile: SocialProfile) => Promise<AppSession | null>
   updateParticipantProfile: (socialProfile: SocialProfile) => Promise<boolean>
   submitQuizResults: (answers: QuizAnswer[]) => Promise<boolean>
@@ -43,8 +41,9 @@ interface UseSessionReturn {
   joinSession: (sessionId: string) => Promise<boolean>
   closeRegistration: () => Promise<boolean>
   startQuiz: () => Promise<boolean>
-  releaseInsights: () => Promise<boolean> // 🆕 NOWA FUNKCJA
-  setMoviePreferences: (moviePreferences: MoviePreferences) => Promise<boolean> // 🎬 NOWA FUNKCJA
+  releaseInsights: () => Promise<boolean>
+  setMoviePreferences: (moviePreferences: MoviePreferences) => Promise<boolean>
+  startMovieTinder: () => Promise<boolean> // ✅ DODANO: Nowa funkcja w interfejsie
   getParticipantStatus: () => { ready: number, total: number }
   isAdmin: boolean
   canContinue: boolean
@@ -165,7 +164,6 @@ export function useSession(): UseSessionReturn {
     setError(null)
   }, [])
 
-  // ‼️ KLUCZOWA ZMIANA 1: Ta funkcja zwraca teraz obiekt sesji lub null
   const updateSession = useCallback(async (action: string, data: any): Promise<AppSession | null> => {
     if (!clientSession) {
       setError('No active session')
@@ -185,18 +183,17 @@ export function useSession(): UseSessionReturn {
       setSession(updatedSession)
       ClientSessionManager.updateLastSync(clientSession.sessionId)
       console.log(`✅ Session updated successfully, new status: ${updatedSession.status}`)
-      return updatedSession // Zwraca obiekt sesji
+      return updatedSession
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error'
       console.error('❌ Failed to update session:', errorMessage)
       setError(errorMessage)
-      return null // Zwraca null w przypadku błędu
+      return null
     } finally {
       setIsLoading(false)
     }
   }, [clientSession])
 
-  // 🆕 NOWA FUNKCJA: Release insights dla admina via events endpoint
   const releaseInsights = useCallback(async (): Promise<boolean> => {
     if (!clientSession || !clientSession.isAdmin) {
       setError('Only admin can release insights')
@@ -236,7 +233,6 @@ export function useSession(): UseSessionReturn {
     }
   }, [clientSession])
 
-  // 🎬 NOWA FUNKCJA: Set movie preferences
   const setMoviePreferences = useCallback(async (moviePreferences: MoviePreferences): Promise<boolean> => {
     if (!clientSession) {
       setError('No active session')
@@ -264,7 +260,6 @@ export function useSession(): UseSessionReturn {
     }
   }, [clientSession, updateSession])
 
-  // Pozostałe funkcje dostosowane, aby nadal zwracały boolean
   const updatePlatforms = useCallback(async (platforms: StreamingPlatform[]): Promise<boolean> => {
     const result = await updateSession('update_platforms', { platforms });
     return !!result;
@@ -275,7 +270,6 @@ export function useSession(): UseSessionReturn {
     return !!result;
   }, [updateSession])
 
-  // ‼️ KLUCZOWA ZMIANA 2: Ta funkcja przekazuje dalej obiekt sesji
   const updateAdminProfile = useCallback(async (socialProfile: SocialProfile): Promise<AppSession | null> => {
     const sessionProfile = convertToSessionProfile(socialProfile)
     return await updateSession('update_admin_profile', { profile: sessionProfile })
@@ -379,6 +373,16 @@ export function useSession(): UseSessionReturn {
     return !!result
   }, [clientSession, updateSession])
 
+  // ✅ DODANO: Implementacja nowej funkcji
+  const startMovieTinder = useCallback(async (): Promise<boolean> => {
+    if (!clientSession || !clientSession.isAdmin) {
+      setError('Only admin can start the movie tinder');
+      return false;
+    }
+    const result = await updateSession('start_movie_tinder', {});
+    return !!result;
+  }, [clientSession, updateSession]);
+
   const getParticipantStatus = useCallback((): { ready: number, total: number } => {
     const sessionWithProfiles = session as any
     if (!sessionWithProfiles?.profiles) { return { ready: 0, total: 0 } }
@@ -408,8 +412,9 @@ export function useSession(): UseSessionReturn {
     refreshSession,
     closeRegistration,
     startQuiz,
-    releaseInsights, // 🆕 DODANA FUNKCJA
-    setMoviePreferences, // 🎬 NOWA FUNKCJA
+    releaseInsights,
+    setMoviePreferences,
+    startMovieTinder, // ✅ DODANO: Eksport nowej funkcji
     getParticipantStatus,
     isAdmin,
     canContinue

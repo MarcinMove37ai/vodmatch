@@ -1,4 +1,4 @@
-// src/app/page.tsx - WERSJA Z POPRAWIONĄ LOGIKĄ NAWIGACJI I RELEASE INSIGHTS + MOVIE SEARCH
+// src/app/page.tsx
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
@@ -18,6 +18,7 @@ import WaitingRoomScreen from '@/components/WaitingRoomScreen'
 import QuizScreen from '@/components/QuizScreen'
 import WaitingForResultsScreen from '@/components/WaitingForResultsScreen'
 import MoviePreferencesScreen from '@/components/MoviePreferencesScreen'
+import MovieTinderScreen from '@/components/MovieTinderScreen'
 
 // Types
 import { StreamingPlatform } from '@/types/platform'
@@ -33,7 +34,7 @@ interface QuizAnswer {
 
 const CORRECT_PASSWORD = 'aicc$'
 
-type AppStep = 'login' | 'platforms' | 'mode' | 'profile' | 'participant_profile' | 'qr_code' | 'waiting_room' | 'quiz' | 'waiting_for_results' | 'movie_preferences'
+type AppStep = 'login' | 'platforms' | 'mode' | 'profile' | 'participant_profile' | 'qr_code' | 'waiting_room' | 'quiz' | 'waiting_for_results' | 'movie_preferences' | 'movie_tinder'
 
 const getCurrentStepKey = (sessionId: string, userId: string) => `vodmatch_step_${sessionId}_${userId}`
 const saveCurrentStep = (sessionId: string, userId: string, step: AppStep) => { try { localStorage.setItem(getCurrentStepKey(sessionId, userId), step) } catch (e) { console.error('Failed to save currentStep:', e) } }
@@ -49,20 +50,19 @@ const userHasCompletedQuiz = (session: any, userId: string): boolean => {
 
 export default function VodMatchApp() {
   const { isMobile } = useDeviceDetection()
-  // 🔄 ZMIANA: Dodano setMoviePreferences do destructuring
-  const { session, clientSession, isLoading: sessionLoading, error: sessionError, createSession, updatePlatforms, updateMode, updateAdminProfile, updateParticipantProfile, submitQuizResults, clearSession, refreshSession, isAdmin, closeRegistration, startQuiz, releaseInsights, setMoviePreferences, getParticipantStatus } = useSession()
+  // ✅ ZMIANA 1: Pobieramy nową funkcję 'startMovieTinder' z haka
+  const { session, clientSession, isLoading: sessionLoading, error: sessionError, createSession, updatePlatforms, updateMode, updateAdminProfile, updateParticipantProfile, submitQuizResults, clearSession, refreshSession, isAdmin, closeRegistration, startQuiz, releaseInsights, setMoviePreferences, startMovieTinder, getParticipantStatus } = useSession()
   const [currentStep, setCurrentStep] = useState<AppStep>('login')
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [loginError, setLoginError] = useState<string>('')
   const [showContent, setShowContent] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [showDebug, setShowDebug] = useState(false)
-  // 🆕 NOWY STAN: Movie search completed
   const [movieSearchCompleted, setMovieSearchCompleted] = useState(false)
 
   const shouldEnableRealTime = () => {
     if (!session?.sessionId || !isAuthenticated) return false
-    const realTimeSteps: AppStep[] = ['participant_profile', 'qr_code', 'waiting_room', 'quiz', 'waiting_for_results', 'movie_preferences']
+    const realTimeSteps: AppStep[] = ['participant_profile', 'qr_code', 'waiting_room', 'quiz', 'waiting_for_results', 'movie_preferences', 'movie_tinder']
     return realTimeSteps.includes(currentStep)
   }
 
@@ -118,7 +118,6 @@ export default function VodMatchApp() {
     }
   }, [realTimeSession, isAuthenticated, clientSession, currentStep, isAdmin])
 
-  // 🆕 NOWY USEEFFECT: SSE listener dla movie search
   useEffect(() => {
     if (!effectiveSession?.sessionId || !isAuthenticated) return
 
@@ -141,7 +140,6 @@ export default function VodMatchApp() {
     return () => eventSource.close()
   }, [effectiveSession?.sessionId, isAuthenticated, refreshSession])
 
-  // 🆕 NOWY USEEFFECT: Reset stanu przy zmianie preferencji
   useEffect(() => {
     if (effectiveSession?.movie_search_results || effectiveSession?.llm_movies) {
       setMovieSearchCompleted(true)
@@ -150,8 +148,8 @@ export default function VodMatchApp() {
     }
   }, [effectiveSession?.movie_search_results, effectiveSession?.llm_movies, effectiveSession?.movie_preferences])
 
-  // 🔄 ZMIANA: Obsługa nowych statusów insights_ready i insights_released
   const determineStepFromSession = (session: any, isAdmin: boolean, userId: string): AppStep => {
+    if (session.currentStep === 'movie_tinder') return 'movie_tinder';
     if (session.status === 'results' || session.status === 'insights_ready' || session.status === 'insights_released') return 'waiting_for_results'
     if (userHasCompletedQuiz(session, userId)) return 'waiting_for_results'
     if (isAdmin) {
@@ -173,28 +171,29 @@ export default function VodMatchApp() {
     }
   }
 
-  // 🔄 ZMIANA: Obsługa nowych statusów insights_ready i insights_released
   const validateStepAgainstSession = (step: AppStep, session: any, isAdmin: boolean, userId: string): AppStep => {
-  // 🎬 NOWA KLAUZULA OCHRONNA: Jeśli celem jest ekran preferencji, pozwól na to.
-  if (step === 'movie_preferences') {
-    return 'movie_preferences';
-  }
-
-  if (session.status === 'results' || session.status === 'insights_ready' || session.status === 'insights_released') return 'waiting_for_results'
-  // @ts-ignore - 'results' is a possible value from old localStorage
-  if (step === 'results' || step === 'waiting_for_results') {
-    return userHasCompletedQuiz(session, userId) ? 'waiting_for_results' : 'quiz'
-  }
+    if (step === 'movie_tinder') {
+      return 'movie_tinder';
+    }
+    if (session.currentStep === 'movie_tinder') return 'movie_tinder';
+    if (step === 'movie_preferences') {
+        return 'movie_preferences';
+    }
+    if (session.status === 'results' || session.status === 'insights_ready' || session.status === 'insights_released') return 'waiting_for_results'
+    // @ts-ignore
+    if (step === 'results' || step === 'waiting_for_results') {
+        return userHasCompletedQuiz(session, userId) ? 'waiting_for_results' : 'quiz'
+    }
     if (isAdmin) {
-      if (step === 'mode' && !session.selectedPlatforms?.length) return 'platforms'
-      if (step === 'profile' && !session.viewingMode) return 'mode'
-      if ((step === 'qr_code' || step === 'waiting_room') && !session.adminProfile) return 'profile'
-      if (step === 'waiting_room' && (session.status === 'quiz_active' || session.status === 'quiz')) return 'quiz'
+        if (step === 'mode' && !session.selectedPlatforms?.length) return 'platforms'
+        if (step === 'profile' && !session.viewingMode) return 'mode'
+        if ((step === 'qr_code' || step === 'waiting_room') && !session.adminProfile) return 'profile'
+        if (step === 'waiting_room' && (session.status === 'quiz_active' || session.status === 'quiz')) return 'quiz'
     } else {
-      const participantProfile = session.profiles?.find((p: any) => p.userId === userId && !p.isAdmin)
-      const hasRealProfile = participantProfile && participantProfile.username && !participantProfile.username.startsWith('temp_')
-      if (step === 'waiting_room' && !hasRealProfile) return 'participant_profile'
-      if ((step === 'participant_profile' || step === 'waiting_room') && (session.status === 'quiz_active' || session.status === 'quiz')) return 'quiz'
+        const participantProfile = session.profiles?.find((p: any) => p.userId === userId && !p.isAdmin)
+        const hasRealProfile = participantProfile && participantProfile.username && !participantProfile.username.startsWith('temp_')
+        if (step === 'waiting_room' && !hasRealProfile) return 'participant_profile'
+        if ((step === 'participant_profile' || step === 'waiting_room') && (session.status === 'quiz_active' || session.status === 'quiz')) return 'quiz'
     }
     return step
   }
@@ -233,16 +232,12 @@ export default function VodMatchApp() {
   const handlePlatformContinue = async (platforms: StreamingPlatform[]) => { if (await updatePlatforms(platforms)) updateCurrentStep('mode'); }
   const handleModeContinue = async (mode: ViewingMode) => { if (await updateMode(mode)) updateCurrentStep('profile'); }
 
-  // ‼️ KLUCZOWA ZMIANA: Ta funkcja jest teraz odporna na błędy "race condition"
   const handleAdminProfileContinue = async (profile: SocialProfile) => {
     const updatedSession = await updateAdminProfile(profile);
     if (updatedSession) {
-      // Używamy świeżych danych 'updatedSession' bezpośrednio z odpowiedzi API,
-      // a nie obiektu 'session' ze stanu, który może być nieaktualny.
       const modeId = typeof updatedSession.viewingMode === 'string'
         ? updatedSession.viewingMode
         : updatedSession?.viewingMode?.id;
-
       updateCurrentStep(modeId === 'solo' ? 'quiz' : 'qr_code');
     }
   }
@@ -252,7 +247,6 @@ export default function VodMatchApp() {
   const handleStartQuiz = async () => { setIsProcessing(true); if (await startQuiz()) { await refreshSession(); updateCurrentStep('quiz'); } else { alert('Failed to start quiz.'); } setIsProcessing(false); }
   const handleRefreshSession = async (): Promise<void> => { await refreshSession(); }
 
-  // 🎬 NOWY HANDLER: Movie Preferences
   const handleMoviePreferences = async (preferences: { excludedGenres: string[], minImdbRating: number }) => {
     setIsProcessing(true)
     try {
@@ -271,17 +265,20 @@ export default function VodMatchApp() {
     }
   }
 
-  // 🎬 NOWY HANDLER: Navigate to Movie Preferences
   const handleSetMoviePreferences = () => {
     updateCurrentStep('movie_preferences')
   }
 
-  // 🆕 NOWY HANDLER: Find Movies
-  const handleFindMovies = () => {
-    console.log('🎬 Finding movies...')
-    // TODO: Nawigacja do strony z filmami
-    alert('Movies page - coming soon!')
-  }
+  // ✅ ZMIANA 2: Aktualizujemy funkcję, by korzystała z nowej, zsynchronizowanej akcji
+  const handleFindMovies = async () => {
+    if (!isAdmin) return;
+
+    console.log('🎬 Admin is starting Movie Tinder screen for everyone...');
+    setIsProcessing(true); // Opcjonalnie: pokaż spinner na czas zapytania
+    await startMovieTinder();
+    // Nie musimy już wołać `updateCurrentStep`. Zmiana stanu nastąpi reaktywnie po otrzymaniu eventu z serwera.
+    setIsProcessing(false);
+  };
 
   const handleQuizComplete = async (answers: QuizAnswer[]): Promise<void> => {
     if (!clientSession) return;
@@ -411,8 +408,8 @@ export default function VodMatchApp() {
             onRefreshSession={handleRefreshSession}
             releaseInsights={releaseInsights}
             onSetMoviePreferences={handleSetMoviePreferences}
-            movieSearchCompleted={movieSearchCompleted}  // 🆕 NOWY PROP
-            onFindMovies={handleFindMovies}              // 🆕 NOWY PROP
+            movieSearchCompleted={movieSearchCompleted}
+            onFindMovies={handleFindMovies}
           />
         </>
       )}
@@ -421,6 +418,16 @@ export default function VodMatchApp() {
         <>
           <LogoutButton onLogout={handleLogout} />
           <MoviePreferencesScreen onContinue={handleMoviePreferences} />
+        </>
+      )}
+
+      {currentStep === 'movie_tinder' && (
+        <>
+          <LogoutButton onLogout={handleLogout} />
+          <MovieTinderScreen
+            sessionId={effectiveSession?.sessionId || ''}
+            onFinish={() => updateCurrentStep('waiting_for_results')}
+          />
         </>
       )}
 
