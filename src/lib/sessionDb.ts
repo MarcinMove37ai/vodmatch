@@ -202,8 +202,9 @@ export class SessionDatabase {
         console.log(`✅ [Movie Vector Search] Success for session ${sessionId}: ${result.totalMoviesFound || 0} movies found`)
 
         try {
-          await broadcastSessionUpdate(sessionId, 'movie_search_completed')
-          console.log(`📤 [Movie Vector Search] Broadcast sent for session ${sessionId}`)
+          // ✅ ZMIANA: Dodajemy nowy typ broadcasta
+          await broadcastSessionUpdate(sessionId, 'movie_results_saved_to_db')
+          console.log(`📤 [Movie Vector Search] Broadcast sent for saved results`)
         } catch (broadcastError) {
           console.log(`⚠️ [Movie Vector Search] Broadcast failed:`, broadcastError)
         }
@@ -279,7 +280,11 @@ export class SessionDatabase {
       const session = await prisma.session.findUnique({
         where: { sessionId: sessionId.toUpperCase() },
         include: {
-          profiles: true
+          profiles: true,
+          // ✅ DODAJ: Zliczanie wyników filmów
+          _count: {
+            select: { movieResults: true }
+          }
         }
       })
       if (!session) {
@@ -294,6 +299,9 @@ export class SessionDatabase {
       const adminProfile = session.profiles.find(p => p.isAdmin)
       const sessionWithLegacyFields = {
         ...session,
+        // ✅ DODAJ: Przekazanie informacji o zapisanych wynikach
+        movieResultsCount: session._count.movieResults,
+        hasMovieResults: session._count.movieResults > 0,
         adminProfile: adminProfile ? {
           platform: adminProfile.platform,
           username: adminProfile.username,
@@ -303,7 +311,7 @@ export class SessionDatabase {
           profilepic_url: adminProfile.pic_url
         } : null
       }
-      console.log(`✅ Session found: ${sessionId}, status: ${session.status}, profiles: ${session.profiles.length}`)
+      console.log(`✅ Session found: ${sessionId}, status: ${session.status}, profiles: ${session.profiles.length}, movieResults: ${session._count.movieResults}`)
       return sessionWithLegacyFields
     } catch (error) {
       console.error(`❌ Error getting session ${sessionId}:`, error)

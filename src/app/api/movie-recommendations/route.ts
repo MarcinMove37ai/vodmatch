@@ -327,21 +327,39 @@ Respond only with the JSON array, no additional text.`
     }
 
 
-    // Call the Claude API
-    const claudeResponse = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': claudeApiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify(claudeRequestBody)
-    })
+    // Call the Claude API with retry mechanism for 529 errors
+    const maxRetries = 3;
+    let retryDelay = 1000; // Start with 1 second
+    let claudeResponse: Response | null = null;
 
-    if (!claudeResponse.ok) {
-      const errorData = await claudeResponse.text()
-      console.error(`❌ Claude API error (${claudeResponse.status}):`, errorData)
-      throw new Error(`Claude API error: ${claudeResponse.status}`)
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      claudeResponse = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': claudeApiKey,
+          'anthropic-version': '2023-06-01'
+        },
+        body: JSON.stringify(claudeRequestBody)
+      })
+
+      // If successful or not a 529 error, break the loop
+      if (claudeResponse.ok || claudeResponse.status !== 529) {
+        break;
+      }
+
+      // If it's a 529 and not the last attempt, retry
+      if (attempt < maxRetries - 1) {
+        console.log(`⏳ Claude API overloaded (attempt ${attempt + 1}/${maxRetries}), retrying in ${retryDelay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        retryDelay *= 2; // Exponential backoff: 1s, 2s, 4s
+      }
+    }
+
+    if (!claudeResponse || !claudeResponse.ok) {
+      const errorData = await claudeResponse!.text()
+      console.error(`❌ Claude API error (${claudeResponse!.status}):`, errorData)
+      throw new Error(`Claude API error: ${claudeResponse!.status}`)
     }
 
     const claudeData: ClaudeResponse = await claudeResponse.json()

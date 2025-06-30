@@ -1,4 +1,9 @@
 // src/components/WaitingForResultsScreen.tsx
+// ✅ ROZWIĄZANIE PROBLEMÓW MIGNIĘCIA PRZYCISKÓW + PRZYSPIESZONE INSIGHTS:
+// 1. "Set Preferences"/"Winner's Bonus" - spinner Claude do momentu session.llm_movies
+// 2. "View Movies" - dostępny dopiero po movie_search_completed (nie session.movie_search_results)
+// 3. ParticipantInsightCard - wyświetla się NATYCHMIAST gdy insights_ready + insights_released
+// Wszystkie elementy pojawiają się gdy naprawdę są gotowe (bez migania + minimum czasu oczekiwania)
 'use client'
 
 import { useMemo, useState, useEffect } from 'react'
@@ -57,6 +62,34 @@ export default function WaitingForResultsScreen({
 
   const [isReleasingInsights, setIsReleasingInsights] = useState(false)
 
+  // ✅ NOWA LOGIKA: Stan rekomendacji filmowych z kontrolą gotowości Claude
+  const movieRecommendationsState = useMemo(() => {
+      const hasPreferences = !!session?.movie_preferences
+      const hasLlmMovies = !!session?.llm_movies
+
+      // ✅ ZMIANA: Używamy nowych pól z sesji
+      const hasSearchCompleted = movieSearchCompleted || !!session?.movie_search_results
+      const hasMovieResultsInDb = session?.hasMovieResults || false  // Nowe pole z etapu 1!
+
+      // Jeśli user już ustawił preferencje
+      if (hasPreferences && hasMovieResultsInDb) return 'completed'  // Przycisk "View Movies"
+      if (hasPreferences && hasSearchCompleted && !hasMovieResultsInDb) return 'saving_to_db'  // NOWY STAN!
+      if (hasPreferences && !hasSearchCompleted) return 'searching'  // Spinner "Searching..."
+
+      // Jeśli user nie ustawił preferencji
+      if (!hasPreferences && hasLlmMovies) return 'ready_for_preferences'
+      if (!hasPreferences && !hasLlmMovies) return 'preparing_recommendations'
+
+      return 'no_preferences'
+    }, [
+      session?.movie_preferences,
+      session?.llm_movies,
+      session?.movie_search_results,
+      session?.hasMovieResults,  // ✅ ZMIANA: Dodanie nowej zależności
+      movieSearchCompleted
+  ])
+
+  // ✅ STARA LOGIKA: zachowana dla kompatybilności z innymi częściami
   const movieSearchState = useMemo(() => {
     const hasPreferences = !!session?.movie_preferences
     const hasResults = movieSearchCompleted || !!session?.movie_search_results || !!session?.llm_movies
@@ -109,11 +142,10 @@ export default function WaitingForResultsScreen({
   }, [session?.status, session?.group_analysis, isSoloMode])
 
   useEffect(() => {
+    // ✅ POPRAWKA: Natychmiastowe przejście do awaiting_winner_action
+    // Eliminacja opóźnienia dla maksymalnie szybkiego wyświetlania insights
     if (resultsPhase === 'showing_insights') {
-      const timer = setTimeout(() => {
-        setResultsPhase('awaiting_winner_action')
-      }, 2000)
-      return () => clearTimeout(timer)
+      setResultsPhase('awaiting_winner_action')
     }
   }, [resultsPhase])
 
@@ -131,6 +163,7 @@ export default function WaitingForResultsScreen({
 
   const handleSetMoviePreferences = () => {
     if (onSetMoviePreferences) {
+      console.log('🎬 [WaitingForResults] Setting movie preferences...')
       onSetMoviePreferences()
     }
   }
@@ -226,32 +259,79 @@ export default function WaitingForResultsScreen({
 
                     {resultsPhase === 'awaiting_winner_action' && (
                       <>
-                        {!session?.movie_preferences && (
-                          <div className="pt-4">
-                            {isActionTaker ? (
-                              <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.9 }} className="text-center">
-                                <button
-                                  onClick={handleSetMoviePreferences}
-                                  className={`font-bold py-3 px-8 rounded-lg shadow-lg transition-all duration-300 flex items-center justify-center mx-auto space-x-2.5
-                                    ${isSoloMode
-                                      ? 'bg-gradient-to-r from-purple-500 to-violet-600 text-white shadow-purple-500/25 hover:shadow-violet-500/30 hover:brightness-110'
-                                      : 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-amber-500/25 hover:shadow-orange-500/30 hover:brightness-110'
-                                    }`}
+                        {/* ✅ NOWA LOGIKA: Kontrola wyświetlania na podstawie movieRecommendationsState */}
+                        <div className="pt-4">
+                          {isActionTaker ? (
+                            <>
+                              {/* ✅ SPINNER: Claude przygotowuje rekomendacje */}
+                              {movieRecommendationsState === 'preparing_recommendations' && (
+                                <motion.div
+                                  initial={{ opacity: 0, y: 20 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  className="text-center"
                                 >
-                                  {isSoloMode ? <Sparkles className="w-5 h-5" /> : <Crown className="w-5 h-5" />}
-                                  <span>{isSoloMode ? 'Set Preferences' : 'Winner\'s Bonus'}</span>
-                                </button>
-                              </motion.div>
-                            ) : (
-                              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center justify-center text-center text-gray-500 text-sm space-x-3">
-                                <div className="w-5 h-5 border-2 border-gray-600 border-t-gray-400 rounded-full animate-spin"></div>
-                                <p>Waiting for Winner's preferences...</p>
-                              </motion.div>
-                            )}
-                          </div>
-                        )}
+                                  <div className="p-6 rounded-xl bg-gradient-to-r from-purple-900/30 to-blue-900/20 border border-purple-500/30">
+                                    <div className="flex items-center justify-center space-x-3 text-purple-300">
+                                      <div className="w-6 h-6 border-2 border-purple-400/50 border-t-purple-400 rounded-full animate-spin"></div>
+                                      <span className="font-medium">Setting movie preferences by Claude...</span>
+                                    </div>
+                                  </div>
+                                </motion.div>
+                              )}
 
-                        {!!session?.movie_preferences && (
+                              {/* ✅ PRZYCISK: Dopiero gdy Claude skończył przygotowania */}
+                              {movieRecommendationsState === 'ready_for_preferences' && (
+                                <motion.div
+                                  initial={{ opacity: 0, scale: 0.9 }}
+                                  animate={{ opacity: 1, scale: 1 }}
+                                  exit={{ opacity: 0, scale: 0.9 }}
+                                  className="text-center"
+                                >
+                                  <button
+                                    onClick={handleSetMoviePreferences}
+                                    className={`font-bold py-3 px-8 rounded-lg shadow-lg transition-all duration-300 flex items-center justify-center mx-auto space-x-2.5
+                                      ${isSoloMode
+                                        ? 'bg-gradient-to-r from-purple-500 to-violet-600 text-white shadow-purple-500/25 hover:shadow-violet-500/30 hover:brightness-110'
+                                        : 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-amber-500/25 hover:shadow-orange-500/30 hover:brightness-110'
+                                      }`}
+                                  >
+                                    {isSoloMode ? <Sparkles className="w-5 h-5" /> : <Crown className="w-5 h-5" />}
+                                    <span>{isSoloMode ? 'Set Preferences' : 'Winner\'s Bonus'}</span>
+                                  </button>
+                                </motion.div>
+                              )}
+                            </>
+                          ) : (
+                            <>
+                              {/* ✅ SPINNER: Dla nie-action-taker gdy Claude jeszcze pracuje */}
+                              {movieRecommendationsState === 'preparing_recommendations' && (
+                                <motion.div
+                                  initial={{ opacity: 0 }}
+                                  animate={{ opacity: 1 }}
+                                  className="flex items-center justify-center text-center text-gray-500 text-sm space-x-3"
+                                >
+                                  <div className="w-5 h-5 border-2 border-gray-600 border-t-gray-400 rounded-full animate-spin"></div>
+                                  <p>Claude is preparing preferences...</p>
+                                </motion.div>
+                              )}
+
+                              {/* ✅ TEKST: Czekanie na winnera gdy Claude już skończył */}
+                              {movieRecommendationsState === 'ready_for_preferences' && (
+                                <motion.div
+                                  initial={{ opacity: 0 }}
+                                  animate={{ opacity: 1 }}
+                                  className="flex items-center justify-center text-center text-gray-500 text-sm space-x-3"
+                                >
+                                  <div className="w-5 h-5 border-2 border-gray-600 border-t-gray-400 rounded-full animate-spin"></div>
+                                  <p>Waiting for Winner's preferences...</p>
+                                </motion.div>
+                              )}
+                            </>
+                          )}
+                        </div>
+
+                        {/* ✅ SEKCJA: Po ustawieniu preferencji (teraz w pełni reaktywna) */}
+                        {session?.movie_preferences ? (
                           <>
                             <motion.div variants={itemVariants} className="p-4 sm:p-5 rounded-2xl bg-gray-900/40 border border-amber-700/30 backdrop-blur-sm space-y-4">
                               <div className="flex items-center space-x-3">
@@ -261,11 +341,11 @@ export default function WaitingForResultsScreen({
                               <div className="space-y-2 text-sm text-gray-300 pl-8 border-l border-dashed border-gray-700 ml-2.5">
                                 <div className="flex items-center space-x-2">
                                   <XCircle className="w-4 h-4 text-red-400/80"/>
-                                  <span>Exclude: {session.movie_preferences.excludedGenres.join(', ')}</span>
+                                  <span>Exclude: {session?.movie_preferences?.excludedGenres?.join(', ') || 'None'}</span>
                                 </div>
                                 <div className="flex items-center space-x-2">
                                   <Star className="w-4 h-4 text-yellow-400/80"/>
-                                  <span>Min. IMDB: {session.movie_preferences.minImdbRating}/10</span>
+                                  <span>Min. IMDB: {session?.movie_preferences?.minImdbRating || 'Any'}/10</span>
                                 </div>
                               </div>
                             </motion.div>
@@ -273,7 +353,7 @@ export default function WaitingForResultsScreen({
                             <motion.div variants={itemVariants} className="pt-4">
                               {isAdmin ? (
                                 (() => {
-                                  switch (movieSearchState) {
+                                  switch (movieRecommendationsState) {
                                     case 'searching':
                                       return (
                                         <div className="flex items-center justify-center text-center text-blue-400 text-sm space-x-3">
@@ -281,6 +361,25 @@ export default function WaitingForResultsScreen({
                                           <p>Searching for perfect movies...</p>
                                         </div>
                                       )
+
+                                    // ✅ NOWY STAN: Zapisywanie do bazy
+                                    case 'saving_to_db':
+                                      console.log('🟢 [UI] Showing saving_to_db spinner!')
+                                      return (
+                                        <motion.div
+                                          initial={{ opacity: 0, y: 20 }}
+                                          animate={{ opacity: 1, y: 0 }}
+                                          className="text-center"
+                                        >
+                                          <div className="p-6 rounded-xl bg-gradient-to-r from-purple-900/30 to-blue-900/20 border border-purple-500/30">
+                                            <div className="flex items-center justify-center space-x-3 text-purple-300">
+                                              <div className="w-6 h-6 border-2 border-purple-400/50 border-t-purple-400 rounded-full animate-spin"></div>
+                                              <span className="font-medium">Saving movie results...</span>
+                                            </div>
+                                          </div>
+                                        </motion.div>
+                                      )
+
                                     case 'completed':
                                       return (
                                         <button
@@ -292,6 +391,7 @@ export default function WaitingForResultsScreen({
                                           <div className="w-2 h-2 bg-emerald-300 rounded-full animate-pulse"></div>
                                         </button>
                                       )
+
                                     default:
                                       return null
                                   }
@@ -304,7 +404,7 @@ export default function WaitingForResultsScreen({
                               )}
                             </motion.div>
                           </>
-                        )}
+                        ) : null}
                       </>
                     )}
                   </motion.div>
