@@ -235,13 +235,6 @@ export default function QRCodeScreen({
                   </div>
                 )}
               </div>
-              {participantProfiles.length > 0 && (
-                <div className="text-center space-y-1">
-                  <p className="text-gray-500 text-xs">{joinedParticipants.length}/{participantProfiles.length} participants added profiles</p>
-                  {allParticipantsHaveJoined && <motion.p initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} className="text-green-400 text-xs font-medium">✅ All participants ready!</motion.p>}
-                  {lastUpdate && isConnected && <p className="text-gray-600 text-xs">Last update: {lastUpdate.toLocaleTimeString()}</p>}
-                </div>
-              )}
             </div>
           </motion.div>
 

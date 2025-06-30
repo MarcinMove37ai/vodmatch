@@ -1,27 +1,34 @@
 'use client'
 
 import { useState } from 'react'
-import { motion } from 'framer-motion' // [ZMIANA] Dodano import
-import { User, Users2, Users, ArrowRight } from 'lucide-react'
+import { motion } from 'framer-motion'
+import { User, Heart, Users2, ArrowRight } from 'lucide-react'
 import { ViewingMode, VIEWING_MODES } from '@/types/mode'
 
 interface ModeSelectorProps {
   onContinue: (selectedMode: ViewingMode) => void
-  // [ZMIANA] Prop `showContent` został usunięty
 }
 
 const getIcon = (iconName: string) => {
   switch (iconName) {
     case 'user': return User
-    case 'users-2': return Users2
-    case 'users': return Users
+    case 'users-2': return Heart
+    case 'users': return Users2
     default: return User
+  }
+}
+
+const getIconGradient = (iconName: string) => {
+  switch (iconName) {
+    case 'user': return 'from-emerald-600 to-teal-600'
+    case 'users-2': return 'from-rose-600 to-pink-600'
+    case 'users': return 'from-purple-600 to-indigo-600'
+    default: return 'from-blue-600 to-purple-600'
   }
 }
 
 export default function ModeSelector({ onContinue }: ModeSelectorProps) {
   const [modes, setModes] = useState<ViewingMode[]>(VIEWING_MODES)
-  // [ZMIANA] Usunięto stan `isAnimating`
 
   const selectMode = (modeId: string) => {
     setModes(prev =>
@@ -34,13 +41,11 @@ export default function ModeSelector({ onContinue }: ModeSelectorProps) {
 
   const selectedMode = modes.find(m => m.selected)
 
-  // [ZMIANA] Uproszczona funkcja, bez opóźnień
   const handleContinue = () => {
     if (!selectedMode) return
     onContinue(selectedMode)
   }
 
-  // [ZMIANA] Definicje wariantów animacji, spójne z resztą aplikacji
   const containerVariants = {
     hidden: { opacity: 0 },
     visible: {
@@ -69,7 +74,6 @@ export default function ModeSelector({ onContinue }: ModeSelectorProps) {
       <div className="absolute bottom-1/3 left-1/3 w-24 h-px bg-gradient-to-r from-transparent via-purple-600/40 to-transparent"></div>
 
       <div className="relative z-10 min-h-screen flex items-center justify-center p-6">
-        {/* [ZMIANA] Główny kontener animacji z wariantami */}
         <motion.div
           className="max-w-sm w-full space-y-8"
           variants={containerVariants}
@@ -92,14 +96,13 @@ export default function ModeSelector({ onContinue }: ModeSelectorProps) {
             {modes.map((mode) => {
               const IconComponent = getIcon(mode.icon)
               return (
-                // [ZMIANA] Każdy element listy jest teraz animowany indywidualnie
                 <motion.div
                   key={mode.id}
                   variants={itemVariants}
                 >
                   <button
                     onClick={() => selectMode(mode.id)}
-                    className={`w-full p-6 rounded-2xl border transition-all duration-300 group relative overflow-hidden ${
+                    className={`w-full p-4 rounded-2xl border transition-all duration-300 group relative overflow-hidden ${
                       mode.selected
                         ? 'border-blue-500/50 bg-gradient-to-br from-gray-800/80 to-gray-900/80 scale-[1.02]'
                         : 'border-gray-800/50 bg-gradient-to-br from-gray-900/40 to-gray-800/30 hover:border-gray-700/70 hover:from-gray-900/60 hover:to-gray-800/50 hover:scale-[1.01]'
@@ -108,19 +111,19 @@ export default function ModeSelector({ onContinue }: ModeSelectorProps) {
                     {mode.selected && (
                       <div className="absolute inset-0 bg-gradient-to-r from-blue-500/15 to-cyan-600/15 rounded-2xl transition-opacity duration-300"></div>
                     )}
-                    <div className="relative text-center space-y-4">
-                      <div className={`mx-auto w-16 h-16 rounded-2xl bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-center shadow-lg group-hover:scale-110 transition-all duration-300 ${
-                        mode.selected ? 'scale-110 shadow-blue-500/25' : ''
-                      }`}>
-                        <IconComponent className="w-8 h-8 text-white" />
+
+                    <div className="relative flex items-center justify-between">
+                      <div className="flex items-center space-x-4">
+                        <div className={`w-12 h-12 rounded-xl bg-gradient-to-r ${getIconGradient(mode.icon)} flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300`}>
+                          <IconComponent className="w-6 h-6 text-white" />
+                        </div>
+                        <div className="text-left">
+                          <p className="text-white font-light text-lg">{mode.displayName}</p>
+                          <p className="text-gray-500 text-xs font-light">{mode.description}</p>
+                        </div>
                       </div>
-                      <div className="space-y-2">
-                        <h3 className="text-white font-light text-xl">{mode.displayName}</h3>
-                        <p className="text-gray-400 text-sm font-light leading-relaxed">
-                          {mode.description}
-                        </p>
-                      </div>
-                      <div className={`mx-auto w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
+
+                      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-300 ${
                         mode.selected
                           ? 'border-blue-400 bg-blue-500 scale-110'
                           : 'border-gray-600 group-hover:border-gray-400'
