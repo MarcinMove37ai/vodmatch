@@ -251,7 +251,7 @@ export function broadcastToSession(sessionId: string, event: SSEEvent) {
 
 // ... reszta funkcji eksportowanych (broadcastSessionUpdate, etc.) pozostaje bez zmian ...
 
-export async function broadcastSessionUpdate(sessionId: string, updateType?: string) {
+export async function broadcastSessionUpdate(sessionId: string, updateType?: string, payload?: any) {
   try {
     const session = await sessionDb.getSession(sessionId)
     if (!session) {

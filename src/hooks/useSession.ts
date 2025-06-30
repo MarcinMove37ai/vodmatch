@@ -24,6 +24,12 @@ interface MoviePreferences {
   minImdbRating: number
 }
 
+// ✅ KROK 4: Definicja typu dla pojedynczego głosu w Movie Tinder
+interface MoviePick {
+    movieId: string;
+    vote: 'watched' | 'not_watched';
+}
+
 interface UseSessionReturn {
   session: AppSession | null
   clientSession: ClientSession | null
@@ -43,7 +49,8 @@ interface UseSessionReturn {
   startQuiz: () => Promise<boolean>
   releaseInsights: () => Promise<boolean>
   setMoviePreferences: (moviePreferences: MoviePreferences) => Promise<boolean>
-  startMovieTinder: () => Promise<boolean> // ✅ DODANO: Nowa funkcja w interfejsie
+  startMovieTinder: () => Promise<boolean>
+  submitTinderBatch: (batchNumber: number, picks: MoviePick[]) => Promise<boolean>; // ✅ KROK 4: Dodanie nowej funkcji do interfejsu
   getParticipantStatus: () => { ready: number, total: number }
   isAdmin: boolean
   canContinue: boolean
@@ -117,6 +124,16 @@ export function useSession(): UseSessionReturn {
   }, [])
 
   const createSession = useCallback(async (): Promise<boolean> => {
+    // ▼▼▼ POCZĄTEK ZMIAN ▼▼▼
+    const oldSessionId = clientSession?.sessionId;
+    if (oldSessionId) {
+      console.log(`🧹 Dispatching session-clearing for old session: ${oldSessionId}`);
+      window.dispatchEvent(new CustomEvent('session-clearing', {
+        detail: { oldSessionId, reason: 'new_session_creation' }
+      }));
+    }
+    // ▲▲▲ KONIEC ZMIAN ▲▲▲
+
     try {
       setIsLoading(true)
       setError(null)
@@ -133,6 +150,14 @@ export function useSession(): UseSessionReturn {
       ClientSessionManager.saveClientSession(newClientSession)
       setClientSession(newClientSession)
       console.log(`💾 Session saved to localStorage: ${sessionId}`)
+
+      // ▼▼▼ POCZĄTEK ZMIAN ▼▼▼
+      console.log(`🆕 Dispatching session-created for new session: ${sessionId}`);
+      window.dispatchEvent(new CustomEvent('session-created', {
+        detail: { sessionId, oldSessionId }
+      }));
+      // ▲▲▲ KONIEC ZMIAN ▲▲▲
+
       const loadSuccess = await loadSessionFromServer(sessionId, true, true)
       if (!loadSuccess) { console.log('⚠️ Session load failed but localStorage preserved for next interaction') }
       console.log(`✅ Session created successfully: ${sessionId}`)
@@ -145,7 +170,7 @@ export function useSession(): UseSessionReturn {
     } finally {
       setIsLoading(false)
     }
-  }, [loadSessionFromServer])
+  }, [loadSessionFromServer, clientSession]) // Dodajemy clientSession do zależności
 
   const loadSession = useCallback(async (sessionId?: string): Promise<boolean> => {
     const targetSessionId = sessionId || clientSession?.sessionId
@@ -157,12 +182,27 @@ export function useSession(): UseSessionReturn {
   }, [clientSession, loadSessionFromServer])
 
   const clearSession = useCallback((): void => {
+    // ▼▼▼ POCZĄTEK ZMIAN ▼▼▼
+    const oldSessionId = clientSession?.sessionId;
+    if (oldSessionId) {
+        console.log(`🧹 Dispatching session-clearing for: ${oldSessionId}`);
+        window.dispatchEvent(new CustomEvent('session-clearing', {
+          detail: { oldSessionId, reason: 'manual_clear' }
+        }));
+    }
+    // ▲▲▲ KONIEC ZMIAN ▲▲▲
+
     console.log('🗑️ Clearing session')
     ClientSessionManager.clearClientSession()
     setClientSession(null)
     setSession(null)
     setError(null)
-  }, [])
+
+    // ▼▼▼ POCZĄTEK ZMIAN ▼▼▼
+    console.log('🗑️ Dispatching session-cleared');
+    window.dispatchEvent(new CustomEvent('session-cleared', { detail: { reason: 'manual_clear' } }));
+    // ▲▲▲ KONIEC ZMIAN ▲▲▲
+  }, [clientSession]) // Dodajemy clientSession do zależności
 
   const updateSession = useCallback(async (action: string, data: any): Promise<AppSession | null> => {
     if (!clientSession) {
@@ -373,7 +413,6 @@ export function useSession(): UseSessionReturn {
     return !!result
   }, [clientSession, updateSession])
 
-  // ✅ DODANO: Implementacja nowej funkcji
   const startMovieTinder = useCallback(async (): Promise<boolean> => {
     if (!clientSession || !clientSession.isAdmin) {
       setError('Only admin can start the movie tinder');
@@ -382,6 +421,44 @@ export function useSession(): UseSessionReturn {
     const result = await updateSession('start_movie_tinder', {});
     return !!result;
   }, [clientSession, updateSession]);
+
+  // ✅ KROK 4: Implementacja nowej funkcji do wysyłania głosów
+  const submitTinderBatch = useCallback(async (batchNumber: number, picks: MoviePick[]): Promise<boolean> => {
+    if (!clientSession) {
+      setError('No active session');
+      return false;
+    }
+    try {
+      setIsLoading(true);
+      setError(null);
+      console.log(`🗳️ Submitting Tinder batch #${batchNumber} for session ${clientSession.sessionId}`);
+
+      const response = await fetch(`/api/session/${clientSession.sessionId}/tinder-vote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: clientSession.userId,
+          batchNumber,
+          picks
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to submit Tinder batch: ${response.status}`);
+      }
+
+      const result = await response.json();
+      return result.success;
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      console.error('❌ Failed to submit Tinder batch:', errorMessage);
+      setError(errorMessage);
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  }, [clientSession]);
+
 
   const getParticipantStatus = useCallback((): { ready: number, total: number } => {
     const sessionWithProfiles = session as any
@@ -414,7 +491,8 @@ export function useSession(): UseSessionReturn {
     startQuiz,
     releaseInsights,
     setMoviePreferences,
-    startMovieTinder, // ✅ DODANO: Eksport nowej funkcji
+    startMovieTinder,
+    submitTinderBatch, // ✅ KROK 4: Eksport nowej funkcji
     getParticipantStatus,
     isAdmin,
     canContinue

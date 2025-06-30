@@ -25,8 +25,10 @@ model Session {
   movie_preferences Json? @map("movie_preferences")
   llm_movies Json? @map("llm_movies")
 
-  // ✅ KROK 1: Dodana kolumna do śledzenia indeksu filmu w sesji Tinder
   movieTinderIndex Int? @default(0) @map("movie_tinder_index")
+
+  // ✅ OSTATECZNA POPRAWKA: Dodana kolumna do przechowywania ID zwycięskiego filmu
+  finalWinnerMovieId String? @map("final_winner_movie_id")
 
   // Relacje
   profiles     SessionProfile[]
@@ -55,7 +57,6 @@ model SessionProfile {
   llm_characterization String? @map("llm_characterization") @db.VarChar(600)
   individual_analysis Json? @map("individual_analysis")
 
-  // ✅ KROK 1: Dodana kolumna na wybory filmów przez użytkownika
   picks Json? @map("picks")
 
   // Metadane

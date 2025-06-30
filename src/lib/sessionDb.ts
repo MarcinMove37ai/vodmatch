@@ -1,19 +1,17 @@
-// lib/sessionDb.ts - WERSJA Z INTEGRACJĄ LLM CHARACTERIZATION I KONTROLĄ RELEASE INSIGHTS + MOVIE RECOMMENDATIONS + MOVIE VECTOR SEARCH + FIX RACE CONDITION
+// lib/sessionDb.ts
 import { prisma } from './prisma'
 import { Prisma } from '@prisma/client'
 
-// SSE INTEGRATION
 import {
   broadcastSessionStatusChanged,
   broadcastSessionUpdate
 } from '../app/api/session/[id]/events/route'
 
-// QUIZ TYPES
 interface QuizAnswer {
   questionId: number
   selectedOption: 'A' | 'B' | 'C' | 'D'
   answeredAt: Date
-  timeSpent: number // czas w sekundach
+  timeSpent: number
 }
 
 interface QuizResults {
@@ -21,8 +19,19 @@ interface QuizResults {
   displayName: string
   answers: QuizAnswer[]
   completedAt: Date
-  totalTime: number // całkowity czas quizu w sekundach
+  totalTime: number
   questionsCount: number
+}
+
+interface MoviePick {
+    movieId: string;
+    vote: 'watched' | 'not_watched';
+}
+
+// Typ dla finalnego głosu dla większej czytelności
+interface FinalVote {
+  movieId: string;
+  timeTaken: number;
 }
 
 export class SessionDatabase {
@@ -50,10 +59,8 @@ export class SessionDatabase {
     throw new Error('Failed to generate unique session ID')
   }
 
-  // 🆕 NOWA HELPER FUNKCJA: Sprawdza warunki i wywołuje vector search jeśli są spełnione
   private async checkAndTriggerVectorSearch(sessionId: string): Promise<void> {
     try {
-      // Sprawdź aktualne dane w bazie
       const session = await prisma.session.findUnique({
         where: { sessionId: sessionId.toUpperCase() },
         select: {
@@ -67,7 +74,6 @@ export class SessionDatabase {
         return
       }
 
-      // Sprawdź czy oba warunki są spełnione
       if (session.llm_movies && session.movie_preferences) {
         console.log(`✅ [Vector Search Check] Both conditions met for ${sessionId} - triggering vector search`)
         this.triggerMovieVectorSearch(sessionId).catch((error) => {
@@ -84,12 +90,10 @@ export class SessionDatabase {
     }
   }
 
-  // 🆕 NOWA METODA: Wyzwalanie LLM characterization
   private async triggerLLMCharacterization(profileId: number): Promise<void> {
     try {
       console.log(`🤖 [LLM Characterization] Starting for profileId: ${profileId}`)
 
-      // Pobierz userId i sessionId z profileId
       const profile = await prisma.sessionProfile.findUnique({
         where: { id: profileId },
         select: { userId: true, username: true, sessionId: true }
@@ -102,7 +106,6 @@ export class SessionDatabase {
 
       console.log(`🤖 [LLM Characterization] Triggering for user: ${profile.username} (${profile.userId})`)
 
-      // Wywołaj endpoint LLM characterization
       const baseUrl = process.env.NEXTAUTH_URL || process.env.VERCEL_URL || 'http://localhost:3000'
       const response = await fetch(`${baseUrl}/api/llm-characterization`, {
         method: 'POST',
@@ -121,7 +124,6 @@ export class SessionDatabase {
       if (result.success) {
         console.log(`✅ [LLM Characterization] Success for ${profile.username}: "${result.characterization}" (${result.length} chars)`)
 
-        // 🆕 BROADCAST: Powiadom klientów o zaktualizowaniu charakteryzacji
         try {
           await broadcastSessionUpdate(profile.sessionId, 'llm_characterization_completed')
           console.log(`📤 [LLM Characterization] Broadcast sent for session ${profile.sessionId}`)
@@ -137,7 +139,6 @@ export class SessionDatabase {
     }
   }
 
-  // 🎬 ZAKTUALIZOWANA METODA: Wyzwalanie rekomendacji filmowych + sprawdzanie warunków vector search
   private async triggerMovieRecommendations(sessionId: string): Promise<void> {
     try {
       console.log(`🎬 [Movie Recommendations] Starting for session: ${sessionId}`)
@@ -160,11 +161,9 @@ export class SessionDatabase {
       if (result.success) {
         console.log(`✅ [Movie Recommendations] Success for session ${sessionId}: ${result.concepts?.length || 0} concepts generated`)
 
-        // 🆕 DODANE: Sprawdź warunki dla vector search po zapisie concepts
         console.log(`🔍 [Movie Recommendations] Checking conditions for vector search...`)
         this.checkAndTriggerVectorSearch(sessionId)
 
-        // 🆕 BROADCAST: Powiadom klientów o dostępności rekomendacji filmowych
         try {
           await broadcastSessionUpdate(sessionId, 'movie_recommendations_ready')
           console.log(`📤 [Movie Recommendations] Broadcast sent for session ${sessionId}`)
@@ -180,7 +179,6 @@ export class SessionDatabase {
     }
   }
 
-  // 🔍 NOWA METODA: Wyzwalanie movie vector search
   private async triggerMovieVectorSearch(sessionId: string): Promise<void> {
     try {
       console.log(`🔍 [Movie Vector Search] Starting for session: ${sessionId}`)
@@ -203,7 +201,6 @@ export class SessionDatabase {
       if (result.success) {
         console.log(`✅ [Movie Vector Search] Success for session ${sessionId}: ${result.totalMoviesFound || 0} movies found`)
 
-        // 🆕 BROADCAST: Powiadom klientów o dostępności wyników wyszukiwania
         try {
           await broadcastSessionUpdate(sessionId, 'movie_search_completed')
           console.log(`📤 [Movie Vector Search] Broadcast sent for session ${sessionId}`)
@@ -219,10 +216,8 @@ export class SessionDatabase {
     }
   }
 
-  // 🆕 NOWA HELPER FUNKCJA: Sprawdza warunki i wywołuje movie recommendations jeśli są spełnione
   private async checkAndTriggerMovieRecommendations(sessionId: string): Promise<void> {
     try {
-      // Sprawdź czy istnieje group_analysis
       const session = await prisma.session.findUnique({
         where: { sessionId: sessionId.toUpperCase() },
         select: { group_analysis: true }
@@ -233,7 +228,6 @@ export class SessionDatabase {
         return
       }
 
-      // Sprawdź status social analysis
       const socialProgress = await this.getSocialAnalysisProgress(sessionId)
       const hasCompletedAnalysis = socialProgress.completed > 0 || socialProgress.failed > 0
 
@@ -247,6 +241,22 @@ export class SessionDatabase {
       }
     } catch (error) {
       console.error(`❌ [Movie Recommendations Check] Error for session ${sessionId}:`, error)
+    }
+  }
+
+  // ✅ NOWA FUNKCJA: Broadcast zakończenia sesji do wszystkich uczestników
+  async broadcastSessionFinish(sessionId: string): Promise<boolean> {
+    try {
+      console.log(`🏁 [Session Finish] Broadcasting session finish for: ${sessionId}`);
+
+      // Wyślij broadcast do wszystkich uczestników
+      await broadcastSessionUpdate(sessionId, 'session_finished');
+
+      console.log(`✅ [Session Finish] Successfully broadcasted session finish for: ${sessionId}`);
+      return true;
+    } catch (error) {
+      console.error(`❌ [Session Finish] Failed to broadcast finish for ${sessionId}:`, error);
+      return false;
     }
   }
 
@@ -371,7 +381,6 @@ export class SessionDatabase {
     }
   }
 
-  // 🎬 POPRAWIONA METODA: Ustawienie preferencji filmowych + sprawdzanie warunków przed triggerem
   async setMoviePreferences(sessionId: string, moviePreferences: { excludedGenres: string[], minImdbRating: number }): Promise<boolean> {
     try {
       await prisma.session.update({
@@ -382,7 +391,6 @@ export class SessionDatabase {
       })
       console.log(`✅ Updated movie preferences for session ${sessionId}:`, moviePreferences)
 
-      // ✅ POPRAWKA: Sprawdź warunki przed triggerem zamiast bezpośredniego wywołania
       console.log(`🔍 [Movie Preferences] Checking conditions for vector search...`)
       this.checkAndTriggerVectorSearch(sessionId)
 
@@ -480,7 +488,6 @@ export class SessionDatabase {
     } catch (error) { return false }
   }
 
-  // ZMODYFIKOWANA FUNKCJA: Dodano automatyczne wyzwalanie movie recommendations
   private async triggerSemanticAnalysis(sessionId: string): Promise<void> {
     console.log(`🧠 [Semantic Analysis] Starting for session: ${sessionId}`);
     try {
@@ -535,11 +542,9 @@ export class SessionDatabase {
 
       console.log(`✅ [Semantic Analysis] Successfully saved group and ${individual_insights.length} individual analyses for session ${sessionId}.`);
 
-      // Po pomyślnym zapisaniu analizy, informujemy klientów o dostępności analizy
       console.log(`📢 [Semantic Analysis] Triggering session broadcast after analysis completion for ${sessionId}`);
       await broadcastSessionUpdate(sessionId, 'analysis_completed');
 
-      // 🎬 POPRAWIONE: Sprawdź warunki przed triggerem movie recommendations
       console.log(`🔍 [Semantic Analysis] Checking conditions for movie recommendations...`);
       this.checkAndTriggerMovieRecommendations(sessionId)
 
@@ -558,7 +563,6 @@ export class SessionDatabase {
 
       if (allCompleted) {
         console.log(`🏆 All participants completed quiz! Session ${sessionId} moved to insights_ready`);
-        // 🔄 ZMIANA: insights_ready zamiast results - czeka na release od admina
         await prisma.session.update({
           where: { sessionId: sessionId.toUpperCase() },
           data: { status: 'insights_ready', currentStep: 'insights_ready' }
@@ -593,7 +597,6 @@ export class SessionDatabase {
     }
   }
 
-  // 🆕 NOWA METODA: Release insights dla admina
   async releaseInsights(sessionId: string): Promise<boolean> {
     try {
       console.log(`🚀 [Release Insights] Admin releasing insights for session ${sessionId}`);
@@ -625,7 +628,7 @@ export class SessionDatabase {
       const completedProfiles = profiles.filter(profile => this.isQuizResultComplete(profile.quiz_result))
       const pendingProfiles = profiles.filter(profile => !this.isQuizResultComplete(profile.quiz_result)).map(p => ({ userId: p.userId, username: p.username, isAdmin: p.isAdmin, hasQuizResult: !!p.quiz_result && typeof p.quiz_result === 'object', hasValidQuizResult: this.isQuizResultComplete(p.quiz_result) }))
       return { totalProfiles: profiles.length, completedProfiles: completedProfiles.length, pendingProfiles, allCompleted: completedProfiles.length === profiles.length && profiles.length > 0, sessionStatus: session?.status || null }
-    } catch (error) { return { totalProfiles: 0, completedProfiles: 0, pendingProfiles: [], allCompleted: false, sessionStatus: null } }
+    } catch (error) { return { totalProfiles: 0, pendingProfiles: [], completedProfiles: 0, allCompleted: false, sessionStatus: null } }
   }
 
   async getQuizResults(sessionId: string): Promise<any[]> {
@@ -672,19 +675,16 @@ export class SessionDatabase {
     } catch (error) { return false }
   }
 
-  // 🆕 ZMODYFIKOWANA FUNKCJA: Automatyczne wyzwalanie LLM characterization + sprawdzanie movie recommendations
   async saveSocialAnalysisResults(profileId: number, postsData: string[], platform: 'instagram' | 'linkedin'): Promise<boolean> {
     try {
       const socialPostsData = { posts: postsData, metadata: { total_posts_analyzed: postsData.length, platform: platform, analyzed_at: new Date().toISOString() } }
       await prisma.sessionProfile.update({ where: { id: profileId }, data: { social_posts: socialPostsData, social_analysis_status: 'completed', social_analyzed_at: new Date() } })
 
-      // 🚀 NOWY KROK: Automatyczne wyzwalanie LLM characterization zaraz po zapisaniu social posts
       console.log(`🤖 [Social Analysis] Successfully saved posts for profileId ${profileId}, triggering LLM characterization...`)
       this.triggerLLMCharacterization(profileId).catch((error) => {
         console.log(`⚠️ [LLM Characterization] Failed for profileId ${profileId}:`, error)
       })
 
-      // 🆕 DODANE: Sprawdź czy można uruchomić movie recommendations po zakończeniu social analysis
       const profile = await prisma.sessionProfile.findUnique({
         where: { id: profileId },
         select: { sessionId: true }
@@ -741,6 +741,249 @@ export class SessionDatabase {
       const result = await prisma.session.deleteMany({ where: { expiresAt: { lt: new Date() } } })
       return result.count
     } catch (error) { return 0 }
+  }
+
+  async advanceMovieTinderIndex(sessionId: string, batchSize: number): Promise<boolean> {
+    try {
+      await prisma.session.update({
+        where: { sessionId: sessionId.toUpperCase() },
+        data: {
+          movieTinderIndex: {
+            increment: batchSize
+          }
+        }
+      });
+      console.log(`✅ [advanceMovieTinderIndex] Advanced index for session ${sessionId} by ${batchSize}`);
+      return true;
+    } catch (error) {
+      console.error(`❌ [advanceMovieTinderIndex] Error advancing index for session ${sessionId}:`, error);
+      return false;
+    }
+  }
+
+  // ✅ NOWA FUNKCJA: Resetuje MovieTinder dla kolejnej rundy
+  async startNextTinderRound(sessionId: string): Promise<boolean> {
+    try {
+      const currentSession = await prisma.session.findUnique({
+        where: { sessionId: sessionId.toUpperCase() },
+        select: { movieTinderIndex: true }
+      });
+
+      if (!currentSession) {
+        console.error(`❌ [startNextTinderRound] Session not found: ${sessionId}`);
+        return false;
+      }
+
+      const currentIndex = currentSession.movieTinderIndex || 0;
+      const BATCH_SIZE = 10;
+      const nextIndex = currentIndex + BATCH_SIZE;
+
+      await prisma.session.update({
+        where: { sessionId: sessionId.toUpperCase() },
+        data: {
+          movieTinderIndex: nextIndex,
+          currentStep: 'movie_tinder'
+        }
+      });
+
+      console.log(`✅ [startNextTinderRound] Advanced session ${sessionId} to next round, index: ${nextIndex}`);
+
+      try {
+        await broadcastSessionUpdate(sessionId, 'next_tinder_round_started');
+        console.log(`📤 [startNextTinderRound] Broadcast sent for session ${sessionId}`);
+      } catch (broadcastError) {
+        console.log(`⚠️ [startNextTinderRound] Broadcast failed:`, broadcastError);
+      }
+
+      return true;
+    } catch (error) {
+      console.error(`❌ [startNextTinderRound] Error for session ${sessionId}:`, error);
+      return false;
+    }
+  }
+
+  // ✅ ZMODYFIKOWANA FUNKCJA: Dodany broadcast gdy wszyscy skończą
+  async saveMoviePicks(sessionId: string, userId: string, batchNumber: number, picks: MoviePick[]): Promise<{ success: boolean; allFinished: boolean }> {
+    try {
+      const upperSessionId = sessionId.toUpperCase();
+
+      const profile = await prisma.sessionProfile.findUnique({
+        where: { sessionId_userId: { sessionId: upperSessionId, userId } }
+      });
+
+      if (!profile) {
+        console.error(`❌ [saveMoviePicks] Profile not found for userId: ${userId} in session: ${upperSessionId}`);
+        return { success: false, allFinished: false };
+      }
+
+      const existingPicks = (profile.picks as Prisma.JsonObject) || {};
+
+      const positivePicks = picks
+        .filter(p => p.vote === 'not_watched')
+        .map(p => p.movieId);
+
+      const batchKey = `batch_${batchNumber}`;
+
+      const newPicks = {
+        ...existingPicks,
+        [batchKey]: positivePicks
+      };
+
+      await prisma.sessionProfile.update({
+        where: { id: profile.id },
+        data: {
+          picks: newPicks
+        }
+      });
+
+      console.log(`✅ [saveMoviePicks] Saved ${picks.length} picks (${positivePicks.length} positive) for user ${userId} in session ${upperSessionId}, batch ${batchNumber}`);
+
+      // Sprawdź, czy wszyscy aktywni uczestnicy zakończyli tę partię
+      const session = await this.getSession(upperSessionId);
+      if (!session) {
+        console.error(`❌ [saveMoviePicks] Session not found: ${upperSessionId}`);
+        return { success: false, allFinished: false };
+      }
+
+      const allProfiles = session.profiles;
+      let participantsToTrack = [];
+
+      if (session.viewingMode === 'solo') {
+        participantsToTrack = allProfiles.filter((p: any) => p.isAdmin);
+        console.log(`👤 [saveMoviePicks] Solo mode - tracking admin only`);
+      } else {
+        participantsToTrack = allProfiles;
+        console.log(`👥 [saveMoviePicks] Group mode - tracking ${participantsToTrack.length} participants`);
+      }
+
+      if (participantsToTrack.length === 0) {
+        console.log(`⚠️ [saveMoviePicks] No participants to track`);
+        return { success: true, allFinished: false };
+      }
+
+      // Musimy pobrać najświeższe dane profili po aktualizacji
+      const updatedProfiles = await this.getSessionProfiles(upperSessionId);
+      let finishedCount = 0;
+
+      console.log(`🔍 [saveMoviePicks] Checking completion for batch ${batchNumber}:`);
+
+      for (const p of updatedProfiles) {
+          // Sprawdzamy tylko tych uczestników, którzy powinni głosować w danym trybie
+          if (participantsToTrack.some((tracked: any) => tracked.userId === p.userId)) {
+              const hasBatchPicks = p.picks && typeof p.picks === 'object' && (p.picks as any)[batchKey];
+              console.log(`  - ${p.username} (${p.userId}): ${hasBatchPicks ? '✅ completed' : '⏳ pending'}`);
+
+              if (hasBatchPicks) {
+                  finishedCount++;
+              }
+          }
+      }
+
+      console.log(`📊 [saveMoviePicks] Completion status for batch ${batchNumber}: ${finishedCount}/${participantsToTrack.length}`);
+
+      const allFinished = finishedCount === participantsToTrack.length;
+
+      if (allFinished) {
+          console.log(`🎉 [saveMoviePicks] All participants have completed batch ${batchNumber}! Broadcasting completion event...`);
+
+          // POCZĄTEK PROPONOWANEJ ZMIANY
+          // Ustaw currentStep na 'movie_tinder_results' w bazie danych.
+          // To jest kluczowy brakujący element.
+          await prisma.session.update({
+            where: { sessionId: upperSessionId },
+            data: { currentStep: 'movie_tinder_results' }
+          });
+          // KONIEC PROPONOWANEJ ZMIANY
+
+          try {
+            // Teraz broadcast wyśle sesję z już zaktualizowanym currentStep.
+            await broadcastSessionUpdate(upperSessionId, 'all_participants_finished_tinder_batch');
+            console.log(`📤 [saveMoviePicks] Successfully broadcasted all_participants_finished_tinder_batch for batch ${batchNumber}`);
+          } catch (broadcastError) {
+            console.log(`⚠️ [saveMoviePicks] Broadcast failed:`, broadcastError);
+          }
+      }
+
+      return { success: true, allFinished: allFinished };
+    } catch (error) {
+      console.error(`❌ [saveMoviePicks] Error saving picks for user ${userId}:`, error);
+      return { success: false, allFinished: false };
+    }
+  }
+
+  // =================================================================================
+  // START: NOWA LOGIKA DO WYŁANIANIA ZWYCIĘZCY
+  // =================================================================================
+  private _calculateWinner(votes: FinalVote[]): string | null {
+    if (!votes || votes.length === 0) return null;
+    const voteCounts = votes.reduce((acc, vote) => {
+      acc[vote.movieId] = (acc[vote.movieId] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    const maxVotes = Math.max(...Object.values(voteCounts));
+    const tiedMoviesIds = Object.keys(voteCounts).filter(id => voteCounts[id] === maxVotes);
+    if (tiedMoviesIds.length === 1) {
+      return tiedMoviesIds[0];
+    }
+    const timeSums = tiedMoviesIds.reduce((acc, movieId) => {
+      acc[movieId] = votes
+        .filter(v => v.movieId === movieId)
+        .reduce((sum, v) => sum + v.timeTaken, 0);
+      return acc;
+    }, {} as Record<string, number>);
+    const winnerId = Object.keys(timeSums).reduce((a, b) => timeSums[a] < timeSums[b] ? a : b);
+    return winnerId;
+  }
+
+  async checkAndDetermineFinalWinner(sessionId: string): Promise<void> {
+    const session = await this.getSession(sessionId);
+    if (!session) {
+      console.error(`[Final Vote Check] Session ${sessionId} not found during check.`);
+      return;
+    }
+    const participantsToTrack = session.viewingMode === 'solo'
+      ? session.profiles.filter((p: any) => p.isAdmin)
+      : session.profiles;
+    if (participantsToTrack.length === 0) {
+      console.log(`[Final Vote Check] No participants to track for session ${sessionId}.`);
+      return;
+    }
+    const finalVotes: FinalVote[] = [];
+    for (const profile of session.profiles) {
+      // ✅ POPRAWKA: Odczytujemy dane z klucza 'batch_final'
+      const finalVoteData = (profile.picks as any)?.batch_final;
+      if (finalVoteData && finalVoteData.movieId && typeof finalVoteData.timeTaken === 'number') {
+        finalVotes.push(finalVoteData);
+      }
+    }
+    if (finalVotes.length < participantsToTrack.length) {
+      console.log(`[Final Vote Check] Waiting for more votes for ${sessionId}: ${finalVotes.length}/${participantsToTrack.length}`);
+      return;
+    }
+    console.log(`🏆 [Final Vote Check] All ${finalVotes.length} participants have voted for ${sessionId}! Calculating winner...`);
+    const winnerMovieId = this._calculateWinner(finalVotes);
+    if (!winnerMovieId) {
+      console.error(`❌ [Final Vote Check] Winner calculation failed for session ${sessionId}.`);
+      return;
+    }
+    const winnerMovieDetails = await prisma.sessionMovieResult.findFirst({
+        where: { sessionId, movieId: winnerMovieId }
+    });
+    if (!winnerMovieDetails) {
+        console.error(`❌ [Final Vote Check] Could not find movie details for winner ID ${winnerMovieId} in session ${sessionId}.`);
+        return;
+    }
+    await prisma.session.update({
+        where: { sessionId },
+        data: {
+            currentStep: 'final_verdict',
+            finalWinnerMovieId: winnerMovieId,
+        }
+    });
+    await broadcastSessionUpdate(sessionId, 'final_verdict_reached', {
+        winner: winnerMovieDetails
+    });
+    console.log(`🎉 [Final Vote Check] Verdict for ${sessionId} is in: "${winnerMovieDetails.movieTitle}". Broadcast sent.`);
   }
 }
 
