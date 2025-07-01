@@ -588,10 +588,10 @@ export default function MovieTinderResultsScreen({
                   <span className="text-sm font-light">Hackathon Project</span>
                 </div>
                 <p className="text-gray-300 text-xs font-light leading-relaxed">
-                  This project was created during <span className="text-blue-300 font-medium">AI Creative Challenge 2025</span>. Connecting people through shared movie experiences.
+                  This project was created during <span className="text-blue-300 font-medium">AI Creative Challenge 2025</span>.
                 </p>
                 <p className="text-gray-200 text-sm font-light leading-relaxed">
-                  Submitted to <span className="text-green-300 font-medium">Open Category</span> with hopes for victory! ;)
+                  Submitted to <span className="text-green-300 font-medium">Open Category</span> with hopes for Victory! ;)
                 </p>
                 <div className="flex justify-center space-x-3 text-xs text-gray-400">
                   <div className="flex items-center space-x-1">
