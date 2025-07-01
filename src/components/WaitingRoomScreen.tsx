@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Users, Wifi, WifiOff, Clock, CheckCircle, ArrowRight } from 'lucide-react'
+import { Users, Wifi, WifiOff, Clock, CheckCircle, ArrowRight, Trophy, Star } from 'lucide-react'
 
 interface WaitingRoomScreenProps {
   sessionId: string
@@ -174,10 +174,12 @@ export default function WaitingRoomScreen({
             <p className="text-gray-400 font-light text-sm">
               {isAdmin
                 ? 'All participants have joined. Start the quiz when ready!'
-                : 'Waiting for the host to start the quiz...'
+                : 'Waiting for the host to start the Mood Quiz...'
               }
             </p>
           </motion.div>
+
+
 
           {/* Participants Section */}
           <motion.div variants={itemVariants}>
@@ -364,6 +366,37 @@ export default function WaitingRoomScreen({
               </button>
             </motion.div>
           )}
+
+          {/* Prize Announcement */}
+          <motion.div variants={itemVariants}>
+            <div className="relative p-4 rounded-xl bg-gradient-to-r from-amber-900/30 via-yellow-900/20 to-orange-900/30 border border-amber-600/40 backdrop-blur-sm">
+              {/* Glow effect */}
+              <div className="absolute inset-0 rounded-xl bg-gradient-to-r from-amber-500/5 via-yellow-500/5 to-orange-500/5 animate-pulse"></div>
+
+              <div className="relative flex items-center justify-between">
+                <div className="flex-shrink-0 pl-2">
+                  <Trophy className="w-6 h-6 text-amber-400" />
+                </div>
+
+                <div className="text-center flex-1">
+                  <h3 className="text-amber-300 font-medium text-sm mb-1">
+                    🏆 Special Prize Alert!
+                  </h3>
+                  <p className="text-amber-100/90 text-xs font-light leading-relaxed">
+                    First to finish wins a <span className="text-amber-300 font-medium">special prize</span>!
+                  </p>
+                </div>
+
+                <div className="flex-shrink-0 pr-2">
+                  <Star className="w-5 h-5 text-yellow-400 animate-pulse" />
+                </div>
+              </div>
+
+              {/* Decorative elements */}
+              <div className="absolute top-2 right-2 w-1 h-1 bg-amber-400 rounded-full animate-ping"></div>
+              <div className="absolute bottom-2 left-2 w-1 h-1 bg-yellow-400 rounded-full animate-ping" style={{ animationDelay: '0.3s' }}></div>
+            </div>
+          </motion.div>
 
           {/* Session info - analogiczne do QRCodeScreen */}
           <motion.div variants={itemVariants} className="text-center space-y-2">

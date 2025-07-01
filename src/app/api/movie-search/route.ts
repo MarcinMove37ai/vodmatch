@@ -3,12 +3,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Pinecone } from '@pinecone-database/pinecone';
 
 // ===== TYPES =====
+// ✅ ZAKTUALIZOWANY INTERFEJS - dodane nowe pola
 interface MovieSearchRequest {
   query: string;
   top_k?: number;
   available_platforms?: string[];
   excluded_genres?: string[];
   min_imdb_rating?: number;
+  max_imdb_rating?: number;    // ✅ DODANE: Eyes bleed mode
+  only_unrated?: boolean;      // ✅ DODANE: Unrated only
   min_year?: number;
   max_year?: number;
 }
@@ -39,6 +42,7 @@ interface MovieResult {
   img_url?: string | null;
 }
 
+// ✅ ZAKTUALIZOWANY INTERFEJS RESPONSE - dodane nowe pola do filters_applied
 interface MovieSearchResponse {
   results: MovieResult[];
   query: string;
@@ -48,6 +52,8 @@ interface MovieSearchResponse {
     platforms?: string[];
     excluded_genres?: string[];
     min_imdb_rating?: number;
+    max_imdb_rating?: number;    // ✅ DODANE
+    only_unrated?: boolean;      // ✅ DODANE
     year_range?: string;
   };
   metadata: {
@@ -325,34 +331,100 @@ async function createSparseEmbedding(query: string, pinecone: Pinecone): Promise
   }
 }
 
+// ✅ NAPRAWIONA FUNKCJA buildMetadataFilter - niezależne filtry bez kolizji
 function buildMetadataFilter(filters: {
   available_platforms?: string[];
   excluded_genres?: string[];
   min_imdb_rating?: number;
+  max_imdb_rating?: number;    // ✅ NOWE
+  only_unrated?: boolean;      // ✅ NOWE
   min_year?: number;
   max_year?: number;
 }): Record<string, any> {
   const filterConditions: Record<string, any> = {};
+  const andConditions: Record<string, any>[] = [];
 
+  // ✅ 1. PLATFORM FILTERING - niezależny filtr
+  let platformFilter: Record<string, any> | null = null;
   if (filters.available_platforms?.length) {
-    filterConditions["platform"] = { "$in": filters.available_platforms };
+    if (filters.available_platforms.length === 1) {
+      // Pojedyncza platforma
+      platformFilter = { "platform": filters.available_platforms[0] };
+    } else {
+      // Multiple platformy - używamy $or
+      platformFilter = {
+        "$or": filters.available_platforms.map(platform => ({
+          "platform": platform
+        }))
+      };
+    }
+    console.log('🔧 Platform filter applied:', filters.available_platforms);
   }
 
+  // ✅ 2. GENRE FILTERING - niezależny filtr (wyłączony)
   if (filters.excluded_genres?.length) {
-    filterConditions["genres"] = { "$nin": filters.excluded_genres };
+    console.log('⚠️ Genre filtering DISABLED (causes crashes)');
+    console.log('🔧 Would exclude genres:', filters.excluded_genres);
+    // Gdy będzie włączone: filterConditions["genres"] = { "$nin": filters.excluded_genres };
   }
 
-  if (filters.min_imdb_rating !== undefined) {
-    filterConditions["imdb_rating_display"] = { "$gte": filters.min_imdb_rating };
+  // ✅ 3. RATING FILTERING - POPRAWIONA LOGIKA
+  if (filters.only_unrated === true) {
+    // NOWA LOGIKA: Filtrujemy filmy z oceną < 1.
+    // To tworzy prosty warunek, który nie koliduje z filtrem platform.
+    filterConditions["imdb_rating_display"] = { "$lt": 1 };
+    console.log('🔧 Unrated only filter applied (rating < 1)');
+  } else {
+    // Standardowe filtrowanie dla ocenianych filmów (pozostaje bez zmian)
+    const ratingFilter: Record<string, any> = {};
+
+    if (filters.min_imdb_rating !== undefined) {
+      ratingFilter["$gte"] = filters.min_imdb_rating;
+      console.log('🔧 Min rating filter applied:', filters.min_imdb_rating);
+    }
+
+    if (filters.max_imdb_rating !== undefined) {
+      ratingFilter["$lte"] = filters.max_imdb_rating;
+      console.log('🔧 Max rating filter applied:', filters.max_imdb_rating);
+    }
+
+    if (Object.keys(ratingFilter).length > 0) {
+      filterConditions["imdb_rating_display"] = ratingFilter;
+    }
   }
 
+  // ✅ 4. YEAR FILTERING - niezależny filtr
   if (filters.min_year !== undefined || filters.max_year !== undefined) {
     const yearFilter: Record<string, any> = {};
     if (filters.min_year !== undefined) yearFilter["$gte"] = filters.min_year;
     if (filters.max_year !== undefined) yearFilter["$lte"] = filters.max_year;
     filterConditions["release_year"] = yearFilter;
+    console.log('🔧 Year filter applied:', yearFilter);
   }
 
+  // ✅ 5. ŁĄCZENIE FILTRÓW - unikanie kolizji
+  if (platformFilter) {
+    if (platformFilter["$or"]) {
+      // Platform ma $or, więc musimy użyć $and żeby połączyć z innymi filtrami
+      andConditions.push(platformFilter);
+
+      // Dodaj pozostałe filtry do $and
+      Object.keys(filterConditions).forEach(key => {
+        andConditions.push({ [key]: filterConditions[key] });
+      });
+
+      // Finalna struktura z $and
+      const finalFilter = andConditions.length > 1 ? { "$and": andConditions } : andConditions[0];
+
+      console.log('🔧 Final filter with $and (to avoid $or collision):', JSON.stringify(finalFilter, null, 2));
+      return finalFilter;
+    } else {
+      // Platform jest prosty, dodaj do głównego filtra
+      filterConditions["platform"] = platformFilter.platform;
+    }
+  }
+
+  console.log('🔧 Final filter (simple):', JSON.stringify(filterConditions, null, 2));
   return filterConditions;
 }
 
@@ -659,18 +731,23 @@ export async function POST(request: NextRequest): Promise<NextResponse<MovieSear
       available_platforms,
       excluded_genres,
       min_imdb_rating,
+      max_imdb_rating,    // ✅ NOWE
+      only_unrated,       // ✅ NOWE
       min_year,
       max_year
     } = body;
 
     const yearRange = min_year || max_year ? `${min_year || '?'}-${max_year || '?'}` : undefined;
 
+    // ✅ ROZSZERZONE LOGOWANIE - pokazuje wszystkie nowe pola
     console.log('🔍 Search request:', {
       query: query?.substring(0, 100) + (query?.length > 100 ? '...' : ''),
       top_k,
       available_platforms,
       excluded_genres,
       min_imdb_rating,
+      max_imdb_rating,    // ✅ NOWE
+      only_unrated,       // ✅ NOWE
       year_range: yearRange
     });
 
@@ -691,10 +768,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<MovieSear
 
     const pinecone = new Pinecone({ apiKey: pineconeApiKey });
 
+    // ✅ ZAKTUALIZOWANE WYWOŁANIE - przekazuje wszystkie nowe pola
     const metadataFilter = buildMetadataFilter({
       available_platforms,
       excluded_genres,
       min_imdb_rating,
+      max_imdb_rating,    // ✅ NOWE
+      only_unrated,       // ✅ NOWE
       min_year,
       max_year
     });
@@ -736,13 +816,37 @@ export async function POST(request: NextRequest): Promise<NextResponse<MovieSear
     }
 
     const combinedResults = combineResults(denseResults, sparseResults);
-    const finalResults = combinedResults.slice(0, top_k);
+
+    // ✅ KROK 1: FILTROWANIE GATUNKÓW NA PODSTAWIE "WIĘKSZEJ LISTY"
+    let resultsAfterGenreFilter = combinedResults;
+    if (excluded_genres?.length) {
+      console.log(`🔧 Applying genre filter to ${combinedResults.length} combined results. Excluding:`, excluded_genres);
+
+      resultsAfterGenreFilter = combinedResults.filter(movie => {
+        // Sprawdzamy, czy w polu `genres` filmu (które jest stringiem)
+        // znajduje się którykolwiek z wykluczonych gatunków.
+        const hasExcludedGenre = excluded_genres.some(excludedGenre =>
+          // Używamy .toLowerCase() dla pewności, że porównanie nie jest wrażliwe na wielkość liter
+          (movie.genres as string).toLowerCase().includes(excludedGenre.toLowerCase())
+        );
+        // Zwracamy tylko te filmy, które NIE MAJĄ wykluczonego gatunku.
+        return !hasExcludedGenre;
+      });
+
+      console.log(`✨ Genre filtering complete. Before: ${combinedResults.length}, After: ${resultsAfterGenreFilter.length}`);
+    }
+
+    // ✅ KROK 2: WYBÓR TOP_K Z PRZEFILTROWANEJ LISTY
+    const finalResults = resultsAfterGenreFilter.slice(0, top_k);
     const searchTimeMs = Date.now() - startTime;
 
+    // ✅ ROZSZERZONE filters_applied - dodane nowe pola
     const filtersApplied: any = {};
     if (available_platforms?.length) filtersApplied.platforms = available_platforms;
     if (excluded_genres?.length) filtersApplied.excluded_genres = excluded_genres;
     if (min_imdb_rating !== undefined) filtersApplied.min_imdb_rating = min_imdb_rating;
+    if (max_imdb_rating !== undefined) filtersApplied.max_imdb_rating = max_imdb_rating;    // ✅ NOWE
+    if (only_unrated === true) filtersApplied.only_unrated = only_unrated;                  // ✅ NOWE
     if (yearRange) filtersApplied.year_range = yearRange;
 
     const response: MovieSearchResponse = {
@@ -780,7 +884,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<MovieSear
   }
 }
 
-// GET endpoint for testing/info
+// ✅ ZAKTUALIZOWANY GET endpoint - pokazuje nowe pola
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams } = new URL(request.url);
   const action = searchParams.get('action');
@@ -820,17 +924,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   return NextResponse.json({
     service: 'movie-search',
-    version: '3.5.0-new-fields',
-    description: 'Production-ready hybrid movie search API with additional fields (imdb_id, type, img_url).',
+    version: '3.6.0-enhanced-filtering',
+    description: 'Production-ready hybrid movie search API with enhanced filtering (Eyes bleed mode, Unrated only, Year ranges).',
     usage: {
       endpoint: 'POST /api/movie-search',
       required: ['query'],
-      optional: ['top_k', 'available_platforms', 'excluded_genres', 'min_imdb_rating', 'min_year', 'max_year']
+      optional: ['top_k', 'available_platforms', 'excluded_genres', 'min_imdb_rating', 'max_imdb_rating', 'only_unrated', 'min_year', 'max_year']
     },
-    new_fields: {
-      imdb_id: 'string | null - IMDB identifier',
-      type: 'string | null - Content type (movie/series/etc)',
-      img_url: 'string | null - Poster/image URL'
+    new_filtering_options: {
+      max_imdb_rating: 'number - Eyes bleed mode (max rating limit)',
+      only_unrated: 'boolean - Unrated only mode (movies without IMDB rating)',
+      year_ranges: 'min_year/max_year - Filter by release year range'
+    },
+    pinecone_operators: {
+      rating_filters: '$gte, $lte for numeric ratings',
+      unrated_filter: '$eq for empty strings, $exists: false for missing fields',
+      year_filters: '$gte, $lte for release year'
     },
     config: {
       alpha_weighting: CONFIG.ALPHA,

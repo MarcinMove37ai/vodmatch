@@ -389,7 +389,14 @@ export class SessionDatabase {
     }
   }
 
-  async setMoviePreferences(sessionId: string, moviePreferences: { excludedGenres: string[], minImdbRating: number }): Promise<boolean> {
+  async setMoviePreferences(sessionId: string, moviePreferences: {
+    excludedGenres: string[]
+    minImdbRating?: number
+    maxImdbRating?: number
+    onlyUnrated?: boolean
+    minYear?: number
+    maxYear?: number
+  }): Promise<boolean> {
     try {
       await prisma.session.update({
         where: { sessionId: sessionId.toUpperCase() },

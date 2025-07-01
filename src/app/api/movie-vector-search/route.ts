@@ -11,12 +11,17 @@ interface MovieConcept {
   genre: string
 }
 
+// ✅ ZAKTUALIZOWANY INTERFEJS - dodane wszystkie brakujące pola
 interface MovieSearchRequest {
   query: string
   top_k?: number
   available_platforms?: string[]
   excluded_genres?: string[]
   min_imdb_rating?: number
+  max_imdb_rating?: number    // ✅ DODANE: Eyes bleed mode
+  only_unrated?: boolean      // ✅ DODANE: Unrated only
+  min_year?: number          // ✅ DODANE: Year filtering
+  max_year?: number          // ✅ DODANE: Year filtering
 }
 
 interface MovieResult {
@@ -58,7 +63,11 @@ interface MovieSearchResponse {
 
 interface MoviePreferences {
   excludedGenres: string[]
-  minImdbRating: number
+  minImdbRating?: number
+  maxImdbRating?: number
+  onlyUnrated?: boolean
+  minYear?: number
+  maxYear?: number
 }
 
 // Type guard functions for runtime validation
@@ -75,14 +84,25 @@ function isMovieConceptArray(obj: unknown): obj is MovieConcept[] {
   return Array.isArray(obj) && obj.every(isMovieConcept)
 }
 
+// ✅ ZAKTUALIZOWANY TYPE GUARD - lepsze sprawdzanie wszystkich pól
 function isMoviePreferences(obj: unknown): obj is MoviePreferences {
-  return (
-    typeof obj === 'object' &&
-    obj !== null &&
-    Array.isArray((obj as any).excludedGenres) &&
-    (obj as any).excludedGenres.every((genre: unknown) => typeof genre === 'string') &&
-    typeof (obj as any).minImdbRating === 'number'
-  )
+  if (typeof obj !== 'object' || obj === null) return false
+
+  const data = obj as any
+
+  // excludedGenres musi być array stringów
+  if (!Array.isArray(data.excludedGenres) ||
+      !data.excludedGenres.every((genre: unknown) => typeof genre === 'string')) {
+    return false
+  }
+
+  // Sprawdź że przynajmniej jeden typ ratingu/preferencji jest ustawiony
+  const hasStandardRating = typeof data.minImdbRating === 'number'
+  const hasMaxRating = typeof data.maxImdbRating === 'number'
+  const hasUnratedFlag = data.onlyUnrated === true
+  const hasYearFilter = typeof data.minYear === 'number' || typeof data.maxYear === 'number'
+
+  return hasStandardRating || hasMaxRating || hasUnratedFlag || hasYearFilter || data.excludedGenres.length > 0
 }
 
 export async function POST(request: NextRequest) {
@@ -108,6 +128,7 @@ export async function POST(request: NextRequest) {
         sessionId: true,
         llm_movies: true,
         movie_preferences: true,
+        selectedPlatforms: true,
         status: true
       }
     })
@@ -178,23 +199,60 @@ export async function POST(request: NextRequest) {
     const preferences = moviePreferencesData
 
     console.log(`🎯 Found ${concepts.length} movie concepts`)
-    console.log(`🎛️ Preferences:`, {
+
+    // ✅ ROZSZERZONE LOGOWANIE - pokazuje wszystkie preferencje
+    console.log(`🎛️ All Preferences:`, {
       excludedGenres: preferences.excludedGenres,
-      minImdbRating: preferences.minImdbRating
+      minImdbRating: preferences.minImdbRating,
+      maxImdbRating: preferences.maxImdbRating,
+      onlyUnrated: preferences.onlyUnrated,
+      minYear: preferences.minYear,
+      maxYear: preferences.maxYear
     })
 
     // Prepare search requests
     const baseUrl = process.env.NEXTAUTH_URL || process.env.VERCEL_URL || 'http://localhost:3000'
 
     const searchPromises = concepts.map(async (concept, index) => {
+      // ✅ ZAKTUALIZOWANY OBIEKT - przekazuje wszystkie pola z preferencji
       const searchRequest: MovieSearchRequest = {
         query: concept.description,
         top_k: 10,
+        available_platforms: (session.selectedPlatforms && Array.isArray(session.selectedPlatforms)) ?
+          session.selectedPlatforms
+            .filter((id): id is string => typeof id === 'string')
+            .map((id: string) => {
+              const mapping: Record<string, string> = {
+                'netflix': 'Netflix',
+                'amazon': 'Amazon Prime',
+                'hulu': 'Hulu',
+                'hbo': 'HBO Max',
+                'apple': 'Apple TV+'
+              };
+              return mapping[id] || id;
+            }) : undefined,
         excluded_genres: preferences.excludedGenres,
-        min_imdb_rating: preferences.minImdbRating
+
+        // ✅ WSZYSTKIE POLA RATINGU
+        min_imdb_rating: preferences.minImdbRating,
+        max_imdb_rating: preferences.maxImdbRating,
+        only_unrated: preferences.onlyUnrated,
+
+        // ✅ WSZYSTKIE POLA ROKU
+        min_year: preferences.minYear,
+        max_year: preferences.maxYear
       }
 
+      // ✅ ROZSZERZONE LOGOWANIE ZAPYTANIA
       console.log(`🔍 Query ${index + 1}: "${concept.description.substring(0, 50)}..." (Genre: ${concept.genre})`)
+      console.log(`📋 Search parameters for query ${index + 1}:`, {
+        platforms: searchRequest.available_platforms,
+        excludedGenres: searchRequest.excluded_genres,
+        minRating: searchRequest.min_imdb_rating,
+        maxRating: searchRequest.max_imdb_rating,
+        onlyUnrated: searchRequest.only_unrated,
+        yearRange: `${searchRequest.min_year || '?'}-${searchRequest.max_year || '?'}`
+      })
 
       const response = await fetch(`${baseUrl}/api/movie-search`, {
         method: 'POST',
@@ -242,7 +300,7 @@ export async function POST(request: NextRequest) {
         movieRuntime: String(movie.runtime),
         movieContentRating: movie.content_rating,
 
-        // 🆕 DODANE BRAKUJĄCE POLA:
+        // DODANE BRAKUJĄCE POLA:
         movieImdbId: movie.imdb_id != null ? String(movie.imdb_id) : null,
         movieType: movie.type != null ? String(movie.type) : null,
         movieImgUrl: movie.img_url != null ? String(movie.img_url) : null,
@@ -255,16 +313,37 @@ export async function POST(request: NextRequest) {
         sparseScore: movie.sparse_score || null,
         platformCount: movie.platform_count || null
       }))
-    )
+    );
 
-    console.log(`💾 Saving ${movieRecords.length} movie records to database...`)
+    // ✅ UPROSZCZONA DE-DUPLIKACJA PO movieImdbId
+    console.log(`🔍 Starting de-duplication by 'movieImdbId' for ${movieRecords.length} raw records...`);
 
-    // Save all records to database
+    const seenImdbIds = new Set<string>();
+    const finalUniqueRecords = movieRecords.filter(record => {
+      // Jeśli film nie ma IMDb ID, zawsze go zachowujemy, aby go nie utracić.
+      if (!record.movieImdbId) {
+        return true;
+      }
+      // Sprawdzamy, czy IMDb ID już wystąpiło.
+      const isDuplicate = seenImdbIds.has(record.movieImdbId);
+      if (!isDuplicate) {
+        // Jeśli nie, dodajemy je do "widzianych" i zachowujemy film.
+        seenImdbIds.add(record.movieImdbId);
+
+      }
+      // Zwracamy tylko te filmy, które nie są duplikatami.
+      return !isDuplicate;
+    });
+
+    console.log(`✨ De-duplication complete. Unique records: ${finalUniqueRecords.length}`);
+
+    // Zapisz unikatowe rekordy do bazy
+    console.log(`💾 Saving ${finalUniqueRecords.length} unique movie records to database...`);
     await prisma.sessionMovieResult.createMany({
-      data: movieRecords
-    })
+      data: finalUniqueRecords
+    });
 
-    console.log(`✅ Successfully saved ${movieRecords.length} movie results for session ${sessionId}`)
+    console.log(`✅ Successfully saved ${finalUniqueRecords.length} movie results for session ${sessionId}`);
 
     // Summary stats
     const summaryByQuery = searchResults.map(result => ({

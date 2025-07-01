@@ -357,6 +357,11 @@ const detectPlatform = (url: string): 'instagram' | 'linkedin' | null => {
                     {isAnimating ? (<><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div><span>Loading...</span></>) : (<><span>Yes, Continue</span><ArrowRight className="w-4 h-4" /></>)}
                   </button>
                 </motion.div>
+                <motion.div variants={profileItemVariants}>
+                  <p className="text-gray-400 font-light">
+                    <span className="text-gray-300 font-normal">Next step:</span> Mood Quiz to better understand how you feel right now
+                  </p>
+                </motion.div>
               </motion.div>
             )}
           </AnimatePresence>

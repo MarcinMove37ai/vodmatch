@@ -387,7 +387,14 @@ export default function VodMatchApp() {
   const handleStartQuiz = async () => { setIsProcessing(true); if (await startQuiz()) { await refreshSession(); updateCurrentStep('quiz'); } else { alert('Failed to start quiz.'); } setIsProcessing(false); }
   const handleRefreshSession = async (): Promise<void> => { await refreshSession(); }
 
-  const handleMoviePreferences = async (preferences: { excludedGenres: string[], minImdbRating: number }) => {
+  const handleMoviePreferences = async (preferences: {
+    excludedGenres: string[],
+    minImdbRating?: number,
+    maxImdbRating?: number,
+    onlyUnrated?: boolean,
+    minYear?: number,
+    maxYear?: number
+  }) => {
     setIsProcessing(true)
     try {
       const success = await setMoviePreferences(preferences)

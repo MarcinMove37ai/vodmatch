@@ -30,7 +30,11 @@ interface UpdateSessionRequest {
   }
   moviePreferences?: {
     excludedGenres: string[]
-    minImdbRating: number
+    minImdbRating?: number
+    maxImdbRating?: number    // ✅ DODANE
+    onlyUnrated?: boolean     // ✅ DODANE
+    minYear?: number          // ✅ DODANE
+    maxYear?: number          // ✅ DODANE
   }
 }
 
@@ -218,8 +222,44 @@ export async function PATCH(
       case 'set_movie_preferences': {
         const { moviePreferences } = body
         if (!moviePreferences) { return NextResponse.json({ error: 'Movie preferences data is required' }, { status: 400 }) }
-        if (!Array.isArray(moviePreferences.excludedGenres) || moviePreferences.excludedGenres.length !== 3 || typeof moviePreferences.minImdbRating !== 'number' || moviePreferences.minImdbRating < 1 || moviePreferences.minImdbRating > 8) {
-          return NextResponse.json({ error: 'Invalid movie preferences format' }, { status: 400 })
+        // Walidacja excludedGenres (bez zmian)
+        if (!Array.isArray(moviePreferences.excludedGenres) || moviePreferences.excludedGenres.length !== 3) {
+          return NextResponse.json({ error: 'Invalid excludedGenres format' }, { status: 400 })
+        }
+
+        // Sprawdź że przynajmniej jeden typ ratingu jest ustawiony
+        const hasStandardRating = typeof moviePreferences.minImdbRating === 'number'
+        const hasMaxRating = typeof moviePreferences.maxImdbRating === 'number'
+        const hasUnratedFlag = moviePreferences.onlyUnrated === true
+
+        if (!hasStandardRating && !hasMaxRating && !hasUnratedFlag) {
+          return NextResponse.json({ error: 'At least one rating preference must be set' }, { status: 400 })
+        }
+
+        // Walidacja poszczególnych pól jeśli są ustawione
+        if (hasStandardRating && moviePreferences.minImdbRating !== undefined) {
+          if (moviePreferences.minImdbRating < 1 || moviePreferences.minImdbRating > 8) {
+            return NextResponse.json({ error: 'minImdbRating must be between 1 and 8' }, { status: 400 })
+          }
+        }
+
+        if (hasMaxRating && moviePreferences.maxImdbRating !== undefined) {
+          if (moviePreferences.maxImdbRating < 1 || moviePreferences.maxImdbRating > 10) {
+            return NextResponse.json({ error: 'maxImdbRating must be between 1 and 10' }, { status: 400 })
+          }
+        }
+
+        // Walidacja year fields (opcjonalnie)
+        if (moviePreferences.minYear !== undefined) {
+          if (moviePreferences.minYear < 1800 || moviePreferences.minYear > 2030) {
+            return NextResponse.json({ error: 'minYear must be between 1800 and 2030' }, { status: 400 })
+          }
+        }
+
+        if (moviePreferences.maxYear !== undefined) {
+          if (moviePreferences.maxYear < 1800 || moviePreferences.maxYear > 2030) {
+            return NextResponse.json({ error: 'maxYear must be between 1800 and 2030' }, { status: 400 })
+          }
         }
         const sessionWithProfiles = session as any
         const userProfile = sessionWithProfiles.profiles?.find((p: any) => p.userId === userId)

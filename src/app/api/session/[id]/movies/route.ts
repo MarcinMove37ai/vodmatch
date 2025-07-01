@@ -33,7 +33,6 @@ export async function GET(
     const requestedBatch = batchParam ? parseInt(batchParam, 10) : Math.floor(currentIndex / BATCH_SIZE) + 1;
     const startIndex = (requestedBatch - 1) * BATCH_SIZE;
 
-    // ✅ KLUCZOWE: Deterministyczne sortowanie i pobieranie konkretnej partii
     const movieResults = await prisma.sessionMovieResult.findMany({
       where: { sessionId: sessionId.toUpperCase() },
       select: {
@@ -44,7 +43,18 @@ export async function GET(
         movieGenres: true,
         movieImdbRating: true,
         movieImgUrl: true,
+        // ✅ DODANE PLATFORMY I DODATKOWE DANE
+        moviePlatform: true,        // ⭐ TO BYŁO BRAKUJĄCE!
+        movieRuntime: true,
+        movieDirectors: true,
+        movieContentRating: true,
+        movieImdbId: true,
+        movieType: true,
+        // Opcjonalnie score dla debugowania
+        searchScore: true,
+        hybridScore: true,
       },
+
       // ✅ Deterministyczne sortowanie zapewniające spójność między użytkownikami
       orderBy: [
         { movieId: 'asc' }, // Pierwszorzędne sortowanie po ID (deterministyczne)

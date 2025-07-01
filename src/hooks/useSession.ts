@@ -21,7 +21,11 @@ interface QuizAnswer {
 
 interface MoviePreferences {
   excludedGenres: string[]
-  minImdbRating: number
+  minImdbRating?: number      // ✅ Opcjonalne
+  maxImdbRating?: number      // ✅ Dla Eyes bleed mode
+  onlyUnrated?: boolean       // ✅ Dla Unrated only
+  minYear?: number           // ✅ Dla year filtering
+  maxYear?: number           // ✅ Dla year filtering
 }
 
 // ✅ KROK 4: Definicja typu dla pojedynczego głosu w Movie Tinder

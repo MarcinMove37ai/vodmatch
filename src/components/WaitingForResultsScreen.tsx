@@ -8,7 +8,7 @@
 
 import { useMemo, useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Clock, Users, CheckCircle, BrainCircuit, Award, Sparkles, Crown, Eye, Star, XCircle, Film } from 'lucide-react'
+import { Clock, Users, CheckCircle, BrainCircuit, Award, Sparkles, Crown, Eye, Star, XCircle, Film, Calendar, HelpCircle, ArrowRight } from 'lucide-react'
 import ParticipantInsightCard from './ParticipantInsightCard'
 
 type ResultsPhase = 'ranking_only' | 'analyzing' | 'insights_ready' | 'showing_insights' | 'awaiting_winner_action'
@@ -229,9 +229,6 @@ export default function WaitingForResultsScreen({
                   variants={itemVariants}
                   className="flex items-center justify-center space-x-4"
                 >
-                  <div className="w-12 h-12 rounded-full flex items-center justify-center shadow-lg shadow-emerald-500/30 bg-gradient-to-br from-emerald-500 to-green-600 flex-shrink-0">
-                    <CheckCircle className="w-6 h-6 text-white" />
-                  </div>
                   <div className="text-left">
                     <h1 className="text-2xl font-light text-white">Quiz Completed!</h1>
                   </div>
@@ -253,6 +250,8 @@ export default function WaitingForResultsScreen({
                           analysis={currentUserAnalysis.individual_analysis}
                           pic_url={currentUserAnalysis.pic_url}
                           llm_characterization={currentUserAnalysis.llm_characterization}
+                          group_analysis={session?.group_analysis}
+                          isGroupMode={!isSoloMode}
                         />
                       </motion.div>
                     )}
@@ -273,7 +272,7 @@ export default function WaitingForResultsScreen({
                                   <div className="p-6 rounded-xl bg-gradient-to-r from-purple-900/30 to-blue-900/20 border border-purple-500/30">
                                     <div className="flex items-center justify-center space-x-3 text-purple-300">
                                       <div className="w-6 h-6 border-2 border-purple-400/50 border-t-purple-400 rounded-full animate-spin"></div>
-                                      <span className="font-medium">Setting movie preferences by Claude...</span>
+                                      <span className="font-medium">Let me analize your Quiz Results...</span>
                                     </div>
                                   </div>
                                 </motion.div>
@@ -287,13 +286,31 @@ export default function WaitingForResultsScreen({
                                   exit={{ opacity: 0, scale: 0.9 }}
                                   className="text-center"
                                 >
+                                  {/* 🎭 KOMUNIKATY NAD PRZYCISKIEM */}
+                                  {isSoloMode ? (
+                                    <div className="mb-4 text-center">
+                                      <p className="text-purple-200 font-light text-base">
+                                        Personalize your movie experience
+                                      </p>
+                                    </div>
+                                  ) : (
+                                    <div className="mb-4 text-center">
+                                      <p className="text-amber-300 font-medium text-lg mb-1">
+                                        🎉 Congratulations!
+                                      </p>
+                                      <p className="text-amber-100/80 text-sm">
+                                        You won! Personalize your movie experience
+                                      </p>
+                                    </div>
+                                  )}
+
                                   <button
                                     onClick={handleSetMoviePreferences}
-                                    className={`font-bold py-3 px-8 rounded-lg shadow-lg transition-all duration-300 flex items-center justify-center mx-auto space-x-2.5
-                                      ${isSoloMode
+                                    className={`font-bold py-3 px-8 rounded-lg shadow-lg transition-all duration-300 flex items-center justify-center mx-auto space-x-2.5 ${
+                                      isSoloMode
                                         ? 'bg-gradient-to-r from-purple-500 to-violet-600 text-white shadow-purple-500/25 hover:shadow-violet-500/30 hover:brightness-110'
                                         : 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-amber-500/25 hover:shadow-orange-500/30 hover:brightness-110'
-                                      }`}
+                                    }`}
                                   >
                                     {isSoloMode ? <Sparkles className="w-5 h-5" /> : <Crown className="w-5 h-5" />}
                                     <span>{isSoloMode ? 'Set Preferences' : 'Winner\'s Bonus'}</span>
@@ -323,7 +340,7 @@ export default function WaitingForResultsScreen({
                                   className="flex items-center justify-center text-center text-gray-500 text-sm space-x-3"
                                 >
                                   <div className="w-5 h-5 border-2 border-gray-600 border-t-gray-400 rounded-full animate-spin"></div>
-                                  <p>Waiting for Winner's preferences...</p>
+                                  <p>Winner is curating their perfect movie experience...</p>
                                 </motion.div>
                               )}
                             </>
@@ -336,17 +353,65 @@ export default function WaitingForResultsScreen({
                             <motion.div variants={itemVariants} className="p-4 sm:p-5 rounded-2xl bg-gray-900/40 border border-amber-700/30 backdrop-blur-sm space-y-4">
                               <div className="flex items-center space-x-3">
                                 <Crown className="w-5 h-5 text-amber-400 flex-shrink-0" />
-                                <h3 className="text-lg text-white font-light">Winner's Preferences</h3>
+                                <h3 className="text-lg text-white font-light">{isSoloMode ? 'Movie Preferences' : 'Winner\'s Preferences'}</h3>
                               </div>
                               <div className="space-y-2 text-sm text-gray-300 pl-8 border-l border-dashed border-gray-700 ml-2.5">
+
+                                {/* Wykluczane gatunki */}
                                 <div className="flex items-center space-x-2">
                                   <XCircle className="w-4 h-4 text-red-400/80"/>
                                   <span>Exclude: {session?.movie_preferences?.excludedGenres?.join(', ') || 'None'}</span>
                                 </div>
-                                <div className="flex items-center space-x-2">
-                                  <Star className="w-4 h-4 text-yellow-400/80"/>
-                                  <span>Min. IMDB: {session?.movie_preferences?.minImdbRating || 'Any'}/10</span>
-                                </div>
+
+                                {/* IMDB Rating z obsługą wszystkich wariantów */}
+                                {session?.movie_preferences?.onlyUnrated ? (
+                                  <div className="flex items-center space-x-2">
+                                    <HelpCircle className="w-4 h-4 text-gray-400/80"/>
+                                    <span>Rating: Unrated movies only</span>
+                                  </div>
+                                ) : session?.movie_preferences?.maxImdbRating ? (
+                                  <div className="flex items-center space-x-2">
+                                    <Star className="w-4 h-4 text-red-400/80"/>
+                                    <span>Rating: Max {session.movie_preferences.maxImdbRating}/10 (Eyes bleed mode)</span>
+                                  </div>
+                                ) : session?.movie_preferences?.minImdbRating ? (
+                                  <div className="flex items-center space-x-2">
+                                    <Star className="w-4 h-4 text-yellow-400/80"/>
+                                    <span>Rating: {session.movie_preferences.minImdbRating}+/10</span>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center space-x-2">
+                                    <Star className="w-4 h-4 text-gray-400/80"/>
+                                    <span>Rating: Any rating accepted</span>
+                                  </div>
+                                )}
+
+                                {/* Release Year filtering */}
+                                {(session?.movie_preferences?.minYear || session?.movie_preferences?.maxYear) && (
+                                  <div className="flex items-center space-x-2">
+                                    <Calendar className="w-4 h-4 text-blue-400/80"/>
+                                    <span>
+                                      Release: {(() => {
+                                        const prefs = session.movie_preferences;
+                                        const currentYear = new Date().getFullYear();
+
+                                        if (prefs?.minYear && prefs?.maxYear) {
+                                          return `${prefs.minYear} - ${prefs.maxYear}`;
+                                        } else if (prefs?.minYear) {
+                                          // Sprawdź czy to "past 5 years" pattern
+                                          if (prefs.minYear === currentYear - 5) {
+                                            return 'Past 5 years only';
+                                          }
+                                          return prefs.minYear === 2000 ? 'Modern films (2000+)' : `${prefs.minYear}+`;
+                                        } else if (prefs?.maxYear) {
+                                          return prefs.maxYear === 1999 ? 'Classic cinema (pre-2000)' : `Until ${prefs.maxYear}`;
+                                        }
+                                        return 'Any year';
+                                      })()}
+                                    </span>
+                                  </div>
+                                )}
+
                               </div>
                             </motion.div>
 
@@ -374,7 +439,7 @@ export default function WaitingForResultsScreen({
                                           <div className="p-6 rounded-xl bg-gradient-to-r from-purple-900/30 to-blue-900/20 border border-purple-500/30">
                                             <div className="flex items-center justify-center space-x-3 text-purple-300">
                                               <div className="w-6 h-6 border-2 border-purple-400/50 border-t-purple-400 rounded-full animate-spin"></div>
-                                              <span className="font-medium">Saving movie results...</span>
+                                              <span className="font-medium">Searching in 104.692 titles...</span>
                                             </div>
                                           </div>
                                         </motion.div>
@@ -384,11 +449,11 @@ export default function WaitingForResultsScreen({
                                       return (
                                         <button
                                           onClick={onFindMovies}
-                                          className="w-full bg-gradient-to-r from-emerald-500 to-green-500 text-white font-bold py-3 px-6 rounded-lg shadow-lg shadow-emerald-500/25 hover:shadow-green-500/30 hover:brightness-110 transition-all duration-300 flex items-center justify-center space-x-2.5 group"
+                                          className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white border border-blue-600/20 hover:border-blue-500/40 hover:scale-[1.02] font-light py-3 px-6 rounded-lg shadow-lg transition-all duration-300 flex items-center justify-center space-x-2.5 group"
                                         >
-                                          <Film className="w-5 h-5 group-hover:scale-110 transition-transform"/>
-                                          <span>View Movies</span>
-                                          <div className="w-2 h-2 bg-emerald-300 rounded-full animate-pulse"></div>
+                                          <Film className="w-5 h-5" />
+                                          <span>Start Movie Tinder</span>
+                                          <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform duration-300" />
                                         </button>
                                       )
 
@@ -399,7 +464,7 @@ export default function WaitingForResultsScreen({
                               ) : (
                                 <div className="flex items-center justify-center text-center text-gray-400 text-sm space-x-3">
                                   <div className="w-5 h-5 border-2 border-blue-500/50 border-t-blue-500 rounded-full animate-spin"></div>
-                                  <p>Waiting for Host to find movies...</p>
+                                  <p>Waiting for Host to start Movie Tinder...</p>
                                 </div>
                               )}
                             </motion.div>
