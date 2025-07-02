@@ -210,13 +210,14 @@ export default function LoginPage({ onLogin, error }: LoginPageProps) {
                 />
 
                 <div className="flex flex-col">
-                  <h1 className="text-3xl font-light bg-gradient-to-r from-white via-gray-100 to-gray-300 bg-clip-text text-transparent tracking-tight">
+                  <h1 className="text-3xl font-light bg-gradient-to-r from-white via-gray-100 to-gray-300 bg-clip-text text-transparent tracking-tight text-left">
                     VODmatch
                   </h1>
-                  <div className="text-left w-24 h-px bg-gradient-to-r from-transparent via-gray-700/40 to-transparent mb-0 mt-0"></div>
+                  <div className="w-24 h-px bg-gradient-to-r from-transparent via-gray-700/40 to-transparent"></div>
                   <p className="text-gray-400 text-xs text-left font-light tracking-wide mt-1">
-                    Stream smarter. Decide faster.
+                    Stream Smarter. Decide Faster.
                   </p>
+                  <div className="w-50 h-px bg-gradient-to-r from-blue-600/60 via-purple-600/60 to-transparent mt-1"></div>
                 </div>
               </div>
             </div>
@@ -227,7 +228,7 @@ export default function LoginPage({ onLogin, error }: LoginPageProps) {
             variants={itemVariants}
             className="text-center space-y-3"
           >
-            <div className="w-16 h-px bg-gradient-to-r from-blue-600/60 via-purple-600/60 to-transparent mx-auto"></div>
+
 
             <div className="space-y-2">
               <p className="text-gray-300 text-sm font-light leading-relaxed">
@@ -241,35 +242,66 @@ export default function LoginPage({ onLogin, error }: LoginPageProps) {
             <div className="w-16 h-px bg-gradient-to-r from-transparent via-gray-700/40 to-transparent mx-auto"></div>
           </motion.div>
 
-          {/* Description Card zgodna z wzorcami */}
-          <motion.div
-            variants={itemVariants}
-            className="w-full p-4 rounded-2xl border border-gray-800/50 bg-gradient-to-br from-gray-900/40 to-gray-800/30 relative overflow-hidden"
-          >
-            <div className="space-y-3">
-              <div className="space-y-2">
-                {[
-                  { title: "Easy Psychology Mood Quiz", desc: "Reveal what you actually want to feel" },
-                  { title: "Social Media Analyzing", desc: "Find what truly entertains you" },
-                  { title: "Multi User Sessions", desc: "QR Code Team Experience" }
-                ].map((feature, index) => (
-                  <div key={index} className="flex items-center space-x-3">
-                    <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
-                    <div className="flex-1">
-                      <p className="text-white font-light text-sm">{feature.title}</p>
-                      <p className="text-gray-400 text-xs font-light leading-tight">{feature.desc}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+          {/* Description Card z kaskadowym układem */}
+            {/* Description Card z dynamicznym kaskadowym układem */}
+            <motion.div
+              variants={itemVariants}
+              className="w-full p-6 rounded-2xl border border-gray-800/50 bg-gradient-to-br from-gray-900/40 to-gray-800/30 relative overflow-hidden"
+            >
+              <div className="space-y-4">
+                <div className="relative">
+                  {[
+                    {
+                      title: "Easy Psychology Mood Quiz",
+                      desc: "Reveal what you actually want to feel",
+                      marginLeft: "ml-0",
+                      bulletColor: "bg-blue-500",
+                      animationDelay: 0.1,
+                      animationDirection: { x: -20, y: 0 },
+                      maxWidth: "max-w-[280px]"
+                    },
+                    {
+                      title: "Social Media Analyzing",
+                      desc: "Find what truly entertains you",
+                      marginLeft: "ml-15",
+                      bulletColor: "bg-purple-500",
+                      animationDelay: 0.2,
+                      animationDirection: { x: 0, y: 20 },
+                      maxWidth: "max-w-[260px]"
+                    },
+                    {
+                      title: "Multi User Sessions",
+                      desc: "QR Code Team Experience",
+                      marginLeft: "ml-30",
+                      bulletColor: "bg-cyan-500",
+                      animationDelay: 0.3,
+                      animationDirection: { x: 20, y: 0 },
+                      maxWidth: "max-w-[270px]"
+                    }
+                  ].map((feature, index) => (
+                    <motion.div
+                      key={index}
+                      className={`flex items-start space-x-3 ${feature.marginLeft} ${index > 0 ? 'mt-4' : ''}`}
+                      initial={{ opacity: 0, ...feature.animationDirection }}
+                      animate={{ opacity: 1, x: 0, y: 0 }}
+                      transition={{ delay: feature.animationDelay, duration: 0.6 }}
+                    >
+                      <div className={`w-2 h-2 rounded-full ${feature.bulletColor} mt-1 flex-shrink-0`}></div>
+                      <div className={`flex-1 ${feature.maxWidth}`}>
+                        <p className="text-white font-light text-sm leading-relaxed">{feature.title}</p>
+                        <p className="text-gray-400 text-xs font-light leading-tight mt-1">{feature.desc}</p>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
 
-              <div className="pt-2 border-t border-gray-700/30">
-                <p className="text-gray-500 text-xs font-light text-center">
-                  104,000+ titles • Netflix, HBO, Prime & more
-                </p>
+                <div className="pt-3 border-t border-gray-700/30 mt-5">
+                  <p className="text-gray-500 text-xs font-light text-center">
+                    104,000+ titles • Netflix, HBO, Prime & more
+                  </p>
+                </div>
               </div>
-            </div>
-          </motion.div>
+            </motion.div>
 
           {/* PIN Input Section */}
           <motion.div
